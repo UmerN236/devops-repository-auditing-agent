@@ -40,7 +40,8 @@ def normalize_url(url):
 
 def clone(url, dest):
     """Shallow-clone without running hooks, LFS filters, submodules or creating symlinks."""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1"}
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1",
+           "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
     cmd = ["git", "-c", "core.symlinks=false", "-c", "core.hooksPath=/dev/null",
            "-c", "protocol.file.allow=never", "clone", "--quiet", "--depth", "200",
            "--no-tags", url + ".git", str(dest)]

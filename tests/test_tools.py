@@ -1,6 +1,7 @@
 import pytest
 from conftest import FAKE_KEY, git
 
+import tools as tool_module
 from tools import RepoTools, ToolError
 
 
@@ -91,3 +92,20 @@ def test_refuses_untracked_metadata_and_symlink_escape(repo, tmp_path):
     tools = RepoTools(repo)
     with pytest.raises(ToolError, match='escapes'):
         tools.search_code('outside')
+
+
+def test_pathological_regex_is_terminated(repo, monkeypatch):
+    (repo / 'long.txt').write_text('a' * 30000 + '!')
+    git(repo, 'add', 'long.txt')
+    monkeypatch.setattr(tool_module, 'SEARCH_TIMEOUT', 0.3)
+    with pytest.raises(ToolError, match='search timed out'):
+        RepoTools(repo).search_code('(a+)+$', file_glob='long.txt')
+
+
+def test_output_limit_does_not_mark_unshown_lines_as_observed(repo):
+    (repo / 'large.py').write_text(('x = ' + '1' * 290 + '\n') * 300)
+    git(repo, 'add', 'large.py')
+    tools = RepoTools(repo)
+    out = tools.read_file('large.py')
+    assert 'file continues' in out
+    assert 300 not in tools.observed_lines['large.py']

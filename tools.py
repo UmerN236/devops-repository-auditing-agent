@@ -10,6 +10,7 @@ import fnmatch
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -19,7 +20,7 @@ from report import redact
 try:
     import tomllib
 except ImportError:  # Python 3.10
-    tomllib = None
+    import tomli as tomllib
 
 MAX_LIST = 400          # files shown by list_files
 MAX_READ_LINES = 300    # lines returned per read_file call
@@ -28,6 +29,7 @@ MAX_MATCHES = 80        # search_code results
 MAX_FILE_BYTES = 1_000_000  # files larger than this are not read/searched
 MAX_OUTPUT_CHARS = 20_000
 GIT_TIMEOUT = 60
+SEARCH_TIMEOUT = 10
 
 
 class ToolError(Exception):
@@ -149,27 +151,36 @@ class RepoTools:
             regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
         except re.error as e:
             raise ToolError(f"invalid regex: {e}")
-        results, total = [], 0
+        candidates = []
         for f in self.files():
             if file_glob and not (fnmatch.fnmatch(f, file_glob) or fnmatch.fnmatch(Path(f).name, file_glob)):
                 continue
             _, full = self._resolve(f)
             if not full.is_file():
                 continue
-            text = self._read_text(full)
-            if text is None:
-                continue
-            safe_lines = redact(text).splitlines()
-            for i, line in enumerate(text.splitlines(), 1):
-                if regex.search(line):
-                    total += 1
-                    if len(results) < MAX_MATCHES:
-                        results.append(f"{f}:{i}: {safe_lines[i - 1].strip()[:MAX_LINE_CHARS]}")
-                        self._observe(f, [i])
+            candidates.append((f, str(full)))
+        request = {'pattern': regex.pattern, 'ignore_case': ignore_case, 'files': candidates,
+                   'max_file_bytes': MAX_FILE_BYTES, 'max_line_chars': MAX_LINE_CHARS,
+                   'max_matches': MAX_MATCHES, 'max_output_chars': MAX_OUTPUT_CHARS}
+        try:
+            process = subprocess.run([sys.executable, str(Path(__file__).with_name('search_worker.py'))],
+                                     input=json.dumps(request), capture_output=True, text=True, timeout=SEARCH_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise ToolError(f'search timed out after {SEARCH_TIMEOUT}s; simplify the regex or narrow file_glob')
+        if process.returncode:
+            raise ToolError('search worker failed; simplify the pattern or narrow file_glob')
+        data = json.loads(process.stdout)
+        results, total = [], data['total']
+        for match in data['matches']:
+            results.append(match['text'])
+            self._observe(match['path'], [match['line']])
+        skipped = (f'\nSkipped {data["skipped_count"]} binary, oversized or unreadable files '
+                   f'(examples: {", ".join(data["skipped"])}).' if data['skipped_count'] else '')
         if not results:
-            return f"No matches for /{pattern}/" + (f" in files matching {file_glob}" if file_glob else "")
-        extra = f"\n... {total - MAX_MATCHES} more matches not shown; narrow the pattern or glob." if total > MAX_MATCHES else ""
-        return f"{total} matches for /{pattern}/:\n" + "\n".join(results) + extra
+            return f"No matches for /{pattern}/" + (f" in files matching {file_glob}" if file_glob else "") + skipped
+        extra = (f"\n... {total - len(results)} more matches not shown; narrow the pattern or glob."
+                 if total > len(results) else "")
+        return f"{total} matches for /{pattern}/:\n" + "\n".join(results) + extra + skipped
 
     def git_log(self, max_count=20, path=None, search=None):
         max_count = max(1, min(int(max_count or 20), 100))

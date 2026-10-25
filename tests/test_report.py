@@ -50,6 +50,16 @@ def test_structured_argument_redaction():
     assert 'abcd1234efgh' not in str(safe) and 'MangoRiverPineCedar' not in str(safe)
 
 
+def test_escaped_quotes_and_multiline_credentials_are_masked():
+    assert 'moreSecret' not in redact(r'PASSWORD = "abc\"moreSecret"')
+    original = 'PASSWORD = """firstSecret\nsecondSecret"""\nnormal = 1'
+    safe = redact(original)
+    assert 'firstSecret' not in safe and 'secondSecret' not in safe
+    assert safe.count('\n') == original.count('\n')
+    assert 'normal = 1' in safe
+    assert redact('PASSWORD=""') == 'PASSWORD=""'
+
+
 def test_normalize_valid_violation():
     v, err = normalize_violation(GOOD, {"app/config.py"})
     assert err is None

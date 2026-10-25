@@ -24,7 +24,10 @@ _TOKENS = [
 _URL_CREDS = re.compile(r"(://[^/\s:@]+:)([^@\s/]+)(@)")
 _SECRET_NAME = r"[\w.-]*?(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?key)"
 # name = "value"  /  "name": "value"  /  name: 'value'
-_QUOTED = re.compile(rf"(?i)\b({_SECRET_NAME})\b([\"']?\s*[:=]\s*)([\"'])([^\"'\n]{{4,}})\3")
+_QUOTED = re.compile(
+    rf"(?i)\b({_SECRET_NAME})\b([\"']?[ \t]*[:=][ \t]*)([\"'])((?:\\.|(?!\3)[^\\\r\n])*)\3")
+_TRIPLE_QUOTED = re.compile(
+    rf"(?is)\b({_SECRET_NAME})\b([\"']?\s*[:=]\s*)(\"\"\"|''')(.*?)\3")
 # NAME=value / name: value (unquoted, .env and YAML style); needs letters and digits.
 _UNQUOTED = re.compile(rf"(?i)\b({_SECRET_NAME})\b([\"']?[ \t]*[:=][ \t]*)([A-Za-z0-9_+/=@!*.-]+)(?=[ \t]*(?:#|$))", re.M)
 _PLACEHOLDER = re.compile(
@@ -42,7 +45,7 @@ def _mask_lines(value, marker):
 
 
 def _looks_real(value):
-    return not _PLACEHOLDER.search(value)
+    return bool(value) and not _PLACEHOLDER.search(value)
 
 
 def redact(text):
@@ -52,6 +55,9 @@ def redact(text):
     # Redact complete blocks before line slicing, so a requested middle line is safe too.
     text = _PEM.sub(lambda m: _mask_lines(m.group(0), "[REDACTED_PRIVATE_KEY]"), text)
     text = _YAML_BLOCK.sub(lambda m: m.group(1) + _mask_lines(m.group(2), "  [REDACTED_SECRET]"), text)
+    text = _TRIPLE_QUOTED.sub(
+        lambda m: m.group(1) + m.group(2) + m.group(3)
+        + _mask_lines(m.group(4), "[REDACTED_SECRET]") + m.group(3), text)
     for pattern, repl in _TOKENS:
         text = pattern.sub(repl, text)
     text = _URL_CREDS.sub(r"\1[REDACTED]\3", text)
