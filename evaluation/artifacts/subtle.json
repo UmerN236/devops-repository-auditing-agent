@@ -1,0 +1,65 @@
+{
+  "repository": "fixture://subtle",
+  "violations": [
+    {
+      "rule_id": "CI-002",
+      "category": "ci_cd",
+      "severity": "high",
+      "file": ".github/workflows/ci.yml",
+      "line": 18,
+      "description": "The pytest step has `continue-on-error: true`, neutralizing the test gate.",
+      "evidence": ".github/workflows/ci.yml line 18: continue-on-error: true on the pytest -q step.",
+      "recommendation": "Remove `continue-on-error: true` from the pytest step so test failures fail the workflow."
+    },
+    {
+      "rule_id": "SEC-002",
+      "category": "security",
+      "severity": "high",
+      "file": ".github/workflows/ci.yml",
+      "line": 6,
+      "description": "Workflow grants write-all permissions, which is overbroad for a CI job that only runs tests and linting.",
+      "evidence": ".github/workflows/ci.yml line 6: permissions: write-all. The job only checks out code, installs deps, runs ruff and pytest.",
+      "recommendation": "Restrict permissions to the minimum needed, e.g. permissions: contents: read for checkout, or remove the block entirely to use repository defaults."
+    },
+    {
+      "rule_id": "SEC-003",
+      "category": "security",
+      "severity": "high",
+      "file": ".github/workflows/ci.yml",
+      "line": 19,
+      "description": "Untrusted GitHub event data (PR title) interpolated directly into a shell command, allowing command injection from fork PRs.",
+      "evidence": ".github/workflows/ci.yml line 19: run: echo \"${{ github.event.pull_request.title }}\" - untrusted PR title interpolated directly into shell command, enabling command injection.",
+      "recommendation": "Avoid interpolating untrusted GitHub context directly into run scripts. If the title is needed, pass it as an environment variable: env: PR_TITLE: ${{ github.event.pull_request.title }} and then use $PR_TITLE in the script."
+    },
+    {
+      "rule_id": "SEC-004",
+      "category": "security",
+      "severity": "high",
+      "file": null,
+      "line": null,
+      "description": "A secret-bearing file (integration.env) containing a GitHub token was committed to git history.",
+      "evidence": "git history shows integration.env was added in commit 708f6b7 with content API_TOKEN=\"[REDACTED_GITHUB_TOKEN]\" and deleted in commit 8e01f55. The token is redacted in the diff but the pattern confirms a real credential was committed.",
+      "recommendation": "Rotate the exposed GitHub token immediately. Use git filter-repo or BFG to purge the file from history, then force-push. Add integration.env to .gitignore to prevent re-committing."
+    },
+    {
+      "rule_id": "CFG-001",
+      "category": "configuration",
+      "severity": "medium",
+      "file": "config.py",
+      "line": 4,
+      "description": "Machine-specific absolute path (/Users/developer/project/data) used as default in configuration.",
+      "evidence": "config.py line 4: DATA_DIR = os.getenv(\"APP_DATA_DIR\", \"/Users/developer/project/data\") - hardcoded macOS user path.",
+      "recommendation": "Use a relative path or a platform-agnostic default like './data' or os.path.join(os.getcwd(), 'data'), and document APP_DATA_DIR as the override."
+    },
+    {
+      "rule_id": "CI-001",
+      "category": "ci_cd",
+      "severity": "medium",
+      "file": ".github/workflows/ci.yml",
+      "line": 4,
+      "description": "CI workflow triggers only on pushes to 'release' branch, but the default branch is 'main', so CI never runs on normal pushes.",
+      "evidence": ".github/workflows/ci.yml line 4: branches: [release]; git_log shows default branch is 'main'. CI will not trigger on pushes to main.",
+      "recommendation": "Add 'main' to the push branches filter, e.g. branches: [main, release], so CI runs on the default branch."
+    }
+  ]
+}

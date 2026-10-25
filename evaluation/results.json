@@ -1,0 +1,101 @@
+{
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "run_at": "2026-10-25T04:49:23.976252+00:00",
+  "method": "Rule/path matching on local synthetic fixtures; human review of unmatched findings required.",
+  "cases": {
+    "healthy": {
+      "true_positives": 0,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "precision": null,
+      "recall": null,
+      "matched": [],
+      "unmatched_findings": [],
+      "missed": []
+    },
+    "obvious": {
+      "true_positives": 7,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "matched": [
+        [
+          "SEC-001",
+          "config.py"
+        ],
+        [
+          "CFG-001",
+          "config.py"
+        ],
+        [
+          "TEST-001",
+          null
+        ],
+        [
+          "CQ-001",
+          null
+        ],
+        [
+          "HYG-001",
+          null
+        ],
+        [
+          "HYG-002",
+          null
+        ],
+        [
+          "HYG-003",
+          "debug.log"
+        ]
+      ],
+      "unmatched_findings": [],
+      "missed": []
+    },
+    "subtle": {
+      "true_positives": 5,
+      "false_positives": 1,
+      "false_negatives": 1,
+      "precision": 0.8333333333333334,
+      "recall": 0.8333333333333334,
+      "matched": [
+        [
+          "CI-002",
+          ".github/workflows/ci.yml"
+        ],
+        [
+          "SEC-002",
+          ".github/workflows/ci.yml"
+        ],
+        [
+          "SEC-003",
+          ".github/workflows/ci.yml"
+        ],
+        [
+          "CFG-001",
+          "config.py"
+        ],
+        [
+          "CI-001",
+          ".github/workflows/ci.yml"
+        ]
+      ],
+      "unmatched_findings": [
+        [
+          "SEC-004",
+          null
+        ]
+      ],
+      "missed": [
+        [
+          "SEC-001",
+          null
+        ]
+      ],
+      "run_at": "2026-10-25T04:49:30.727413+00:00",
+      "models_used": [
+        "nvidia/nemotron-3-ultra-550b-a55b:free"
+      ]
+    }
+  }
+}

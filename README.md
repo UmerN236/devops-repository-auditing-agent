@@ -143,14 +143,15 @@ experiment tracking, and model-validation practices are outside the audit's scop
 Generate the submission example and its trace with:
 
 ```bash
-python agent.py --repo https://github.com/kennethreitz/samplemod --output sample_report.json
+python agent.py --repo https://github.com/kennethreitz/samplemod --output sample_report.json --max-steps 15
 ```
 
 The accompanying trace identifies the model, inspected commit, completion status, tool calls,
 redacted arguments, and result previews. The sample must come from this real command, rather than
 from a scripted test model or manually entered findings. The committed `sample_report.json` was
-produced this way with `nvidia/nemotron-3-ultra-550b-a55b:free` through OpenRouter (20 LLM turns,
-6 findings).
+produced this way with `nvidia/nemotron-3-ultra-550b-a55b:free` through OpenRouter (15 LLM turns,
+2 findings). Its self-review withdrew one draft finding. The recorded findings and withdrawals
+reconstruct the committed report exactly.
 New traces distinguish the configured `model` from `models_used` and record the responding model on
 each turn, including fallback models selected by a gateway.
 
@@ -186,7 +187,7 @@ The agent cycle is **Observe → Reason → Select Tool → Execute Tool → Int
 | `list_files(directory)` | Discover tracked files, including dotfiles, large files and tracked ignored artifacts |
 | `read_file(path, start_line, end_line)` | Read numbered lines from a tracked text file |
 | `search_code(pattern, file_glob, ignore_case)` | Regex search with file/line evidence and a 10-second worker timeout |
-| `git_log(max_count, path, search)` | Commit metadata; regex history searches include redacted patches |
+| `git_log(max_count, path, search)` | Commit metadata; path/history searches include redacted patches, including deleted files |
 | `check_syntax(path)` | Parse Python, YAML, JSON or TOML without executing target code |
 | `record_violation(...)` | Validate and store a finding |
 | `finish(withdraw)` | Review findings, optionally withdraw unsupported ones, then finish |
@@ -262,6 +263,15 @@ Measured with `nvidia/nemotron-3-ultra-550b-a55b:free` (OpenRouter, 2026-10-25):
 |---|---|---|---|---|---|
 | healthy | 0 | 0 | 0 | n/a | n/a |
 | obvious | 7 | 0 | 0 | 1.00 | 1.00 |
+| subtle | 5 | 1 | 1 | 0.83 | 0.83 |
+
+These are strict rule/path scores. In the subtle case, the unmatched `SEC-004` finding and the
+missed `SEC-001` expectation refer to the same historical secret-bearing file. Source review confirms
+that all six injected defects were identified; the scoring mismatch is a valid alternate rule ID.
+The raw scores remain unchanged. See [review notes](evaluation/review_notes.md),
+[machine-readable results](evaluation/results.json), and [reports/traces](evaluation/artifacts/).
+The healthy and obvious rows retain their earlier completed runs. The subtle row comes from the
+updated history tool and an explicitly recorded final-review continuation.
 
 Use `--case obvious`, `--case subtle`, or `--case healthy` for an individual case; a single-case
 run updates that case's entry in the existing results file when the configured model matches.
@@ -269,3 +279,15 @@ Changing models starts a new set of results, so old scores are not attributed to
 New case results include their measurement time and responding models. Reports/traces go
 to `evaluation_runs/`, which is ignored by Git. For a public-repository check, use the normal CLI and
 compare its report against the inspected revision recorded in its trace.
+
+If a case runs out of turns immediately after the first `finish` request, its final self-review can
+be completed from the saved trace without repeating the inspection:
+
+```bash
+python evaluate.py --case subtle --complete-review --output evaluation_results.json
+```
+
+This mode only retains or withdraws findings already recorded in the original run. It cannot add
+findings or perform a new inspection. Saved observation previews may be truncated; the reviewer
+must decline completion if further inspection is needed. Continuation is explicitly labeled in the
+trace. If the inspection has not reached self-review, rerun it with a larger turn budget instead.

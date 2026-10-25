@@ -1,0 +1,75 @@
+{
+  "repository": "fixture://obvious",
+  "violations": [
+    {
+      "rule_id": "SEC-001",
+      "category": "security",
+      "severity": "critical",
+      "file": "config.py",
+      "line": 1,
+      "description": "Hardcoded GitHub token in tracked config file",
+      "evidence": "config.py:1 assigns API_KEY = \"[REDACTED_GITHUB_TOKEN]\" which masks a real token value committed to the repository",
+      "recommendation": "Remove the hardcoded token from config.py. Load API credentials from environment variables or a secrets manager at runtime instead."
+    },
+    {
+      "rule_id": "CFG-001",
+      "category": "configuration",
+      "severity": "medium",
+      "file": "config.py",
+      "line": 2,
+      "description": "Machine-specific absolute path in tracked config file",
+      "evidence": "config.py:2 assigns DATA_DIR = \"/Users/developer/project/data\" - a macOS user-specific path that will not work on other machines or in CI",
+      "recommendation": "Replace the absolute path with a relative path or environment variable (e.g., os.environ.get('DATA_DIR', './data')) so the code works on any machine."
+    },
+    {
+      "rule_id": "TEST-001",
+      "category": "testing",
+      "severity": "medium",
+      "file": null,
+      "line": null,
+      "description": "No automated tests for codebase with real logic",
+      "evidence": "app.py contains an add function with real logic but no test files exist anywhere in the repository (search_code for \"test\" in *.py returned no matches; git history shows no test commits).",
+      "recommendation": "Add automated tests (e.g., pytest) for the add function and any future logic. Configure CI to run tests on push/PR."
+    },
+    {
+      "rule_id": "CQ-001",
+      "category": "code_quality",
+      "severity": "low",
+      "file": null,
+      "line": null,
+      "description": "No linter/formatter configured for Python codebase",
+      "evidence": "No linter/formatter configuration found in the repository. Searched for pyproject.toml, setup.cfg, tox.ini, .flake8, ruff.toml, .pylintrc, .pre-commit-config.yaml, eslint configs - none exist. The repository has Python code but no linting setup.",
+      "recommendation": "Add a linter/formatter configuration (e.g., ruff, flake8, or black via pyproject.toml) and optionally a pre-commit hook to enforce code quality."
+    },
+    {
+      "rule_id": "HYG-001",
+      "category": "repository_hygiene",
+      "severity": "low",
+      "file": null,
+      "line": null,
+      "description": "No README file present",
+      "evidence": "No README.md, README.rst, or README.txt file exists in the repository (search_code returned no matches). Only 4 tracked files: app.py, config.py, debug.log, requirements.txt.",
+      "recommendation": "Add a README.md (or .rst/.txt) with project overview, setup instructions, and usage examples."
+    },
+    {
+      "rule_id": "HYG-002",
+      "category": "repository_hygiene",
+      "severity": "low",
+      "file": null,
+      "line": null,
+      "description": "Missing .gitignore file",
+      "evidence": "No .gitignore file exists in the repository (search_code returned no matches). Generated files like debug.log are tracked because there's no ignore mechanism.",
+      "recommendation": "Create a .gitignore file with entries for *.log, __pycache__/, .venv/, venv/, *.pyc, .DS_Store, and other common Python artifacts."
+    },
+    {
+      "rule_id": "HYG-003",
+      "category": "repository_hygiene",
+      "severity": "low",
+      "file": "debug.log",
+      "line": null,
+      "description": "Generated log file committed to repository",
+      "evidence": "debug.log is tracked in the repository (shown in git log as added in initial commit). This is a generated log file that should be in .gitignore",
+      "recommendation": "Add debug.log (and *.log pattern) to .gitignore and remove the file from git tracking with `git rm --cached debug.log`"
+    }
+  ]
+}

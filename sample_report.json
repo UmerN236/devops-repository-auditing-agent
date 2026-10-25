@@ -2,64 +2,24 @@
   "repository": "https://github.com/kennethreitz/samplemod",
   "violations": [
     {
-      "rule_id": "TEST-003",
-      "category": "testing",
-      "severity": "high",
-      "file": "tests/test_basic.py",
-      "line": 12,
-      "description": "Tests evidently meaningless: test_basic.py contains only `assert True` with no actual assertions.",
-      "evidence": "tests/test_basic.py line 12 contains only `assert True` with no actual test logic. The test class is named BasicTestSuite and the method test_absolute_truth_and_meaning asserts True, which is a meaningless test that always passes regardless of code behavior.",
-      "recommendation": "Replace with meaningful tests that verify actual functionality of the sample module."
-    },
-    {
-      "rule_id": "CQ-001",
-      "category": "code_quality",
-      "severity": "medium",
-      "file": null,
-      "line": null,
-      "description": "No linter/formatter configured anywhere in the repository.",
-      "evidence": "No configuration files found for linters/formatters: no pyproject.toml, setup.cfg, tox.ini, .flake8, ruff.toml, .pylintrc, .pre-commit-config.yaml, package.json, eslint configs, and CI steps. The Makefile only has init and test targets.",
-      "recommendation": "Add a linter/formatter configuration (e.g., ruff, flake8, black) and optionally a pre-commit hook or CI step to enforce code quality."
-    },
-    {
-      "rule_id": "DEP-002",
-      "category": "dependency_management",
-      "severity": "medium",
-      "file": "requirements.txt",
-      "line": null,
-      "description": "Weak/missing version constraints for deployable application dependencies (bare package names with no versions).",
-      "evidence": "requirements.txt contains bare package names without version constraints: 'nose' and 'sphinx' on lines 1-2. No lockfile (requirements.lock, Pipfile.lock, poetry.lock, or equivalent) exists in the repository.",
-      "recommendation": "Pin dependency versions in requirements.txt (e.g., 'nose==1.3.7') and generate a lockfile, or use a tool like pip-tools, poetry, or uv that manages locked dependencies."
-    },
-    {
-      "rule_id": "DEP-003",
-      "category": "dependency_management",
-      "severity": "medium",
-      "file": "setup.py",
-      "line": 23,
-      "description": "Inconsistent specifications: setup.py declares no install_requires while requirements.txt lists dependencies.",
-      "evidence": "setup.py uses find_packages() with no install_requires declaration, while requirements.txt lists 'nose' and 'sphinx'. There's no consistency between the two - the package declares no runtime dependencies in setup.py but requirements.txt has test/doc dependencies.",
-      "recommendation": "Add install_requires to setup.py for runtime dependencies, separate test/docs dependencies into extras_require or a separate requirements-dev.txt, and ensure consistency."
-    },
-    {
       "rule_id": "TEST-002",
       "category": "testing",
       "severity": "medium",
       "file": null,
       "line": null,
       "description": "Tests exist but no CI workflow runs them.",
-      "evidence": "Repository contains tests in tests/test_basic.py and tests/test_advanced.py, and a Makefile with `nosetests tests` target, but no CI configuration files exist (no .github/workflows/, .gitlab-ci.yml, .circleci/, Jenkinsfile, or other CI configs). The git_log search confirms no CI-related files in history.",
-      "recommendation": "Add a CI workflow (e.g., GitHub Actions) that runs tests on push and pull requests to the default branch."
+      "evidence": "Tests exist in tests/ (test_basic.py, test_advanced.py) and a Makefile runs `nosetests tests`, but there is no .github/workflows/, .travis.yml, .circleci/, .gitlab-ci.yml, Jenkinsfile, or other CI configuration.",
+      "recommendation": "Add a CI workflow (e.g., GitHub Actions) that runs the test suite on pushes and pull requests to the default branch."
     },
     {
       "rule_id": "TEST-003",
       "category": "testing",
       "severity": "medium",
-      "file": "tests/test_advanced.py",
+      "file": "tests/test_basic.py",
       "line": 12,
-      "description": "Test is ineffective: test_advanced.py asserts `sample.hmm()` returns None, but hmm() function only prints and returns None implicitly - it doesn't test actual functionality.",
-      "evidence": "tests/test_advanced.py line 12: `self.assertIsNone(sample.hmm())`. Looking at sample/core.py lines 9-12, the hmm() function calls helpers.get_answer() and if True, prints get_hmm() but returns None implicitly. This test only verifies the function returns None, not that it behaves correctly.",
-      "recommendation": "Update tests to verify actual module behavior, not just None returns."
+      "description": "Test contains a meaningless assertion (`assert True`) that verifies nothing.",
+      "evidence": "In tests/test_basic.py line 12: `assert True` - this test always passes and tests no actual functionality.",
+      "recommendation": "Replace the placeholder test with meaningful assertions that verify actual behavior of the code under test."
     }
   ]
 }
