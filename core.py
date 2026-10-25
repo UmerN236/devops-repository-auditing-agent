@@ -65,6 +65,72 @@ class Auditor:
         self._turn = 0
         self._review_turn = None
 
+    @classmethod
+    def complete_saved_review(cls, llm, saved):
+        """Finish an already-started self-review without repeating the inspection.
+
+        Saved result previews may be truncated. The reviewer can only retain or withdraw
+        findings accepted by the original run; it cannot create findings or claim a new scan.
+        """
+        if not isinstance(saved, dict) or saved.get('completed') is not False:
+            raise ValueError('Review continuation requires an incomplete audit trace')
+        if not isinstance(saved.get('steps'), list) or not isinstance(saved.get('repository'), str):
+            raise ValueError('Invalid saved audit trace')
+        auditor = cls(llm, None, saved['repository'])
+        review_started = False
+        for step in saved['steps']:
+            for call in step.get('tool_calls', []):
+                name, preview = call.get('tool'), call.get('result_preview', '')
+                args = json.loads(call.get('arguments', '{}'))
+                if name == 'record_violation' and preview.startswith('Recorded V'):
+                    identifier = preview.split()[1].rstrip('.')
+                    finding, error = normalize_violation(args, {args.get('file')})
+                    if error:
+                        raise ValueError(f'Invalid saved finding: {error}')
+                    auditor.violations[identifier] = finding
+                elif name == 'finish' and not preview.startswith('ERROR:'):
+                    for identifier in args.get('withdraw') or []:
+                        auditor.violations.pop(identifier, None)
+                    review_started |= 'Before finishing, review your work.' in preview
+        if not review_started:
+            raise ValueError('The saved inspection has not reached self-review; run a complete inspection first')
+        auditor.reviewed = True
+        auditor._review_turn = max((s['step'] for s in saved['steps']), default=0)
+        auditor._turn = auditor._review_turn + 1
+        messages = [
+            {'role': 'system', 'content': SYSTEM_PROMPT},
+            {'role': 'user', 'content': (
+                'An inspection reached its turn limit immediately after requesting self-review. '
+                'Complete only that outstanding review using the saved observations below. '
+                'These are genuine saved tool-result PREVIEWS and may be truncated. Findings were '
+                'validated and recorded during the original inspection. No new inspection has occurred. '
+                'You may retain or withdraw existing finding IDs using finish. Do not add findings. '
+                'Withdraw any finding that is unsupported or an acceptable alternative. If the saved '
+                'evidence is insufficient to finish, explain the required inspection instead of calling finish.\n'
+                + json.dumps({'findings': auditor.violations, 'observation_trace': saved['steps']})
+            )},
+        ]
+        reply = llm.chat(messages, [AGENT_SCHEMAS[1]])
+        calls = reply.get('tool_calls') or []
+        if len(calls) != 1 or calls[0]['function']['name'] != 'finish':
+            raise ValueError('Saved-evidence review needs further inspection; no completed report was produced')
+        raw = calls[0]['function']['arguments']
+        result = auditor.dispatch('finish', raw)
+        if not auditor.done:
+            raise ValueError(f'Saved-evidence review did not finish: {result}')
+        updated = json.loads(json.dumps(saved))
+        updated['steps'].append({
+            'step': auditor._turn, 'phase': 'saved_trace_review',
+            'model': getattr(llm, 'last_model', None) or llm.model,
+            'thought': redact(reply.get('content') or ''),
+            'tool_calls': [{'tool': 'finish', 'arguments': json.dumps(redact_data(json.loads(raw))),
+                            'result_preview': redact(result[:500])}],
+        })
+        updated['completed'] = True
+        updated['review_continuation'] = 'Review of saved findings and truncated observation previews; no new scan'
+        updated['models_used'] = list(dict.fromkeys(s.get('model', saved['model']) for s in updated['steps']))
+        return build_report(saved['repository'], list(auditor.violations.values())), updated
+
     # ----------------------------------------------------------------- dispatch
     def dispatch(self, name, raw_args):
         try:
@@ -143,7 +209,9 @@ class Auditor:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": (
                 f"Audit the repository {self.repo_url}. It is cloned locally with "
-                f"{len(self.tools.files())} tracked files. Start by exploring it with the tools."
+                f"{len(self.tools.files())} tracked files. You have at most {self.max_steps} model turns, "
+                "including self-review. Batch independent tool calls and confirmed findings where useful. "
+                "Start by exploring it with the tools."
             )},
         ]
         schemas = TOOL_SCHEMAS + AGENT_SCHEMAS

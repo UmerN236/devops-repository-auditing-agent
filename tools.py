@@ -188,6 +188,7 @@ class RepoTools:
                 "--no-ext-diff", "--no-textconv", "--stat=120,60"]
         if search:
             args.append(f"-G{search}")
+        if search or path:
             args += ["--patch", "--unified=2"]
         if path:
             args += ["--", self._resolve(path)[0]]
@@ -285,14 +286,14 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "git_log",
             "description": "Show commit history with changed-file stats, plus default branch, remote branches "
-                           "and authors. 'search' finds commits whose diff added/removed lines matching a regex "
-                           "(useful for secrets removed from the current tree but still in history).",
+                           "and authors. Supplying path or search includes redacted patches. Use path for a "
+                           "deleted filename; search matches changed LINE CONTENT, not filenames or messages.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "max_count": {"type": "integer", "description": "Default 20, max 100"},
-                    "path": {"type": "string", "description": "Only commits touching this path"},
-                    "search": {"type": "string", "description": "Regex for git log -G"},
+                    "path": {"type": "string", "description": "Show patches touching this path, including deleted files"},
+                    "search": {"type": "string", "description": "Regex matching added/removed line content (git log -G)"},
                 },
             },
         },

@@ -115,6 +115,37 @@ def test_step_budget_returns_partial_report(repo):
     assert any("budget almost exhausted" in (m.get("content") or "") for m in llm.requests[-1])
 
 
+@pytest.mark.parametrize('withdraw', [[], ['V1']])
+def test_saved_review_can_only_retain_or_withdraw_recorded_findings(repo, withdraw):
+    _, original, _ = run(repo, [
+        [call('read_file', path='app/config.py')], [call('record_violation', **SECRET)],
+        [call('finish')],
+    ], max_steps=3)
+    saved = {'repository': original.repo_url, 'model': 'fake-model', 'completed': False, 'steps': original.trace}
+    review_llm = FakeLLM([[call('finish', withdraw=withdraw)]])
+    report, updated = Auditor.complete_saved_review(review_llm, saved)
+    assert len(review_llm.requests) == 1
+    assert updated['completed'] and updated['steps'][-1]['phase'] == 'saved_trace_review'
+    assert len(report['violations']) == (0 if withdraw else 1)
+    assert not saved['completed'] and len(saved['steps']) == 3
+
+
+def test_saved_review_rejects_an_inspection_that_has_not_reached_review(repo):
+    _, original, _ = run(repo, [[call('list_files')]], max_steps=1)
+    saved = {'repository': original.repo_url, 'model': 'fake-model', 'completed': False, 'steps': original.trace}
+    client = FakeLLM([])
+    with pytest.raises(ValueError, match='not reached self-review'):
+        Auditor.complete_saved_review(client, saved)
+    assert client.requests == []
+
+
+def test_saved_review_cannot_add_new_findings(repo):
+    _, original, _ = run(repo, [[call('finish')]], max_steps=1)
+    saved = {'repository': original.repo_url, 'model': 'fake-model', 'completed': False, 'steps': original.trace}
+    with pytest.raises(ValueError, match='needs further inspection'):
+        Auditor.complete_saved_review(FakeLLM([[call('record_violation', **SECRET)]]), saved)
+
+
 # ------------------------------------------------------------------- CLI tests
 @pytest.fixture
 def cli(monkeypatch, repo):

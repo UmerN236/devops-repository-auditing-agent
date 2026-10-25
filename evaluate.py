@@ -53,9 +53,13 @@ def main(argv=None):
     parser.add_argument('--max-steps', type=int, default=40)
     parser.add_argument('--output', type=Path, default=Path('evaluation_results.json'))
     parser.add_argument('--runs-dir', type=Path, default=Path('evaluation_runs'))
+    parser.add_argument('--complete-review', action='store_true',
+                        help='Complete only a pending self-review from the selected case trace')
     args = parser.parse_args(argv)
     if args.max_steps < 1:
         parser.error('--max-steps must be positive')
+    if args.complete_review and args.case == 'all':
+        parser.error('--complete-review requires one explicit --case')
     load_dotenv(Path(__file__).resolve().parent / '.env')
     try:
         llm = LLM()
@@ -65,28 +69,37 @@ def main(argv=None):
         if args.case != 'all' and args.output.exists():
             result['cases'] = previous_cases(args.output, llm.model)
         for name in EXPECTED if args.case == 'all' else [args.case]:
-            with tempfile.TemporaryDirectory(prefix='audit-eval-') as temp:
-                root = build_case(Path(temp) / name, name)
-                auditor = Auditor(llm, RepoTools(root), f'fixture://{name}', max_steps=args.max_steps, log=log)
-                try:
-                    report = auditor.run()
-                finally:
-                    write_json(args.runs_dir / f'{name}.trace.json', {
-                        'repository': f'fixture://{name}', 'revision': git(root, 'rev-parse', 'HEAD'),
-                        'model': llm.model, 'completed': auditor.done, 'steps': auditor.trace,
-                        'models_used': list(dict.fromkeys(s['model'] for s in auditor.trace))})
-                if not auditor.done:
-                    raise LLMError(f'{name}: incomplete audit; increase --max-steps')
-                write_json(args.runs_dir / f'{name}.json', report)
-                metrics = score(report['violations'], EXPECTED[name])
-                metrics['run_at'] = datetime.now(timezone.utc).isoformat()
-                metrics['models_used'] = list(dict.fromkeys(s['model'] for s in auditor.trace))
-                result['cases'][name] = metrics
-                write_json(args.output, result)
-                log(f'{name}: TP={metrics["true_positives"]} FP={metrics["false_positives"]} '
-                    f'FN={metrics["false_negatives"]}')
+            trace_path = args.runs_dir / f'{name}.trace.json'
+            if args.complete_review:
+                saved = json.loads(trace_path.read_text(encoding='utf-8'))
+                if saved.get('repository') != f'fixture://{name}' or saved.get('model') != llm.model:
+                    raise LLMError('Selected case and model must match the saved trace')
+                report, case_trace = Auditor.complete_saved_review(llm, saved)
+                write_json(trace_path, case_trace)
+            else:
+                with tempfile.TemporaryDirectory(prefix='audit-eval-') as temp:
+                    root = build_case(Path(temp) / name, name)
+                    auditor = Auditor(llm, RepoTools(root), f'fixture://{name}', max_steps=args.max_steps, log=log)
+                    try:
+                        report = auditor.run()
+                    finally:
+                        case_trace = {
+                            'repository': f'fixture://{name}', 'revision': git(root, 'rev-parse', 'HEAD'),
+                            'model': llm.model, 'completed': auditor.done, 'steps': auditor.trace,
+                            'models_used': list(dict.fromkeys(s['model'] for s in auditor.trace))}
+                        write_json(trace_path, case_trace)
+                    if not auditor.done:
+                        raise LLMError(f'{name}: incomplete audit; increase --max-steps')
+            write_json(args.runs_dir / f'{name}.json', report)
+            metrics = score(report['violations'], EXPECTED[name])
+            metrics['run_at'] = datetime.now(timezone.utc).isoformat()
+            metrics['models_used'] = case_trace['models_used']
+            result['cases'][name] = metrics
+            write_json(args.output, result)
+            log(f'{name}: TP={metrics["true_positives"]} FP={metrics["false_positives"]} '
+                f'FN={metrics["false_negatives"]}')
         return 0
-    except (LLMError, ToolError, OSError) as error:
+    except (LLMError, ToolError, OSError, ValueError) as error:
         log(f'ERROR: {error}')
         return 1
 

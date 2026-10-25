@@ -74,6 +74,12 @@ def test_git_log_and_history_search(repo):
     assert "ghp_" + "a" * 36 not in hist
 
 
+def test_history_path_returns_deleted_content_without_a_search_pattern(repo):
+    out = RepoTools(repo).git_log(path='old_secret.txt')
+    assert 'token =' in out and 'REDACTED_GITHUB_TOKEN' in out
+    assert 'ghp_' + 'a' * 36 not in out
+
+
 def test_check_syntax(repo):
     tools = RepoTools(repo)
     assert "SYNTAX ERROR" in tools.check_syntax("broken.yml")
