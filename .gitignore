@@ -12,6 +12,8 @@ venv/
 # Agent outputs from local runs
 report.json
 report.trace.json
+evaluation_results.json
+evaluation_runs/
 
 # OS / editors
 .DS_Store
