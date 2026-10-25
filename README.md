@@ -1,57 +1,96 @@
 # DevOps Repository Auditing Agent
 
-An LLM-driven agent that clones a public GitHub repository, investigates it with read-only
-inspection tools, and writes a JSON report of DevOps best-practice violations with evidence and
-recommendations.
+[![CI](https://github.com/UmerN236/devops-repository-auditing-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/UmerN236/devops-repository-auditing-agent/actions/workflows/ci.yml)
 
-The agent loop, tool dispatch and control flow are written in plain Python. The only LLM
-dependency is the `openai` SDK, used as a client for any OpenAI-compatible endpoint (OpenAI,
-Gemini, Groq, OpenRouter, Ollama, ...). No agent frameworks are used.
+A Python agent that inspects a public GitHub repository and reports evidence-backed DevOps
+violations. An LLM chooses inspection tools, interprets their results, follows up on suspicious
+findings, and reviews its report. The agent loop and dispatch are implemented directly in Python;
+no agent or orchestration framework is used.
 
-## Installation
+## Install
 
-Requires Python 3.10+ and `git` on `PATH`.
+Requires **Python 3.10+**, Git on `PATH`, and an API key for a model that supports function calling.
 
 ```bash
-git clone <this-repository-url>
-cd <this-repository>
+git clone https://github.com/UmerN236/devops-repository-auditing-agent.git
+cd devops-repository-auditing-agent
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-## Setup
-
-```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env`:
+On Windows, activate with `.venv\Scripts\activate` and copy the example with `copy .env.example .env`.
 
-| Variable | Required | Meaning |
-|---|---|---|
-| `LLM_API_KEY` | yes | API key for the provider (`OPENAI_API_KEY` is also accepted) |
-| `LLM_MODEL` | no | Model name, default `gpt-4.1-mini`. Must support tool/function calling |
-| `LLM_BASE_URL` | no | OpenAI-compatible endpoint; empty means OpenAI. Examples are in `.env.example` |
-| `LLM_TEMPERATURE` | no | Default `0`; leave empty for models that reject `temperature` |
+## Configure a provider
 
-Variables already set in the environment take precedence over `.env`.
+Edit `.env` in the project directory. It is ignored by Git. Environment variables already set in
+your shell take precedence over this file. Keep API keys out of reports, commits, and screenshots.
 
-## Running
+For **Gemini**, create a key in [Google AI Studio](https://aistudio.google.com/apikey):
 
-```bash
-python agent.py --repo https://github.com/<owner>/<repo> --output report.json
+```dotenv
+LLM_API_KEY=your-Gemini-key
+LLM_MODEL=gemini-3.8-flash
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+LLM_TEMPERATURE=
+LLM_REASONING_EFFORT=
+LLM_TIMEOUT=90
 ```
 
-Optional flags: `--max-steps N` (LLM turns, default 40), `--trace PATH` (tool-call trace, default
-`<output>.trace.json`), `--quiet` (no step log on stderr).
+Google offers a free tier for eligible models/accounts, subject to request and token quotas.
+Check your account's available models and limits. See Google's
+[compatibility documentation](https://ai.google.dev/gemini-api/docs/openai) and
+[pricing](https://ai.google.dev/gemini-api/docs/pricing).
 
-The run is unattended. Progress (the agent's reasoning and each tool call) is logged to stderr.
-On success the report is written and the exit code is `0`. On a fatal error (invalid URL, clone
-failure, missing API key, LLM API failure after retries) the agent prints `ERROR: ...` and exits
-with `1` without writing a report.
+For **OpenAI**, create a key in the [API dashboard](https://platform.openai.com/api-keys):
 
-### Output
+```dotenv
+LLM_API_KEY=your-OpenAI-key
+LLM_MODEL=gpt-5.4-mini
+LLM_BASE_URL=
+LLM_TEMPERATURE=
+LLM_REASONING_EFFORT=medium
+LLM_TIMEOUT=90
+```
+
+`OPENAI_API_KEY` is also accepted. If no model is configured, the default is `gpt-5.4-mini`.
+Other OpenAI-compatible endpoints, including Groq, OpenRouter, and local Ollama servers, can be
+selected with `LLM_BASE_URL` and an appropriate `LLM_MODEL`. Only set `LLM_REASONING_EFFORT` or
+`LLM_TEMPERATURE` when the chosen model supports them. Blank values omit those parameters.
+`LLM_TIMEOUT` is a positive per-request timeout in seconds; transient API failures are retried twice.
+
+## Run
+
+```bash
+python agent.py --repo https://github.com/kennethreitz/samplemod --output report.json
+```
+
+The required interface is:
+
+```bash
+python agent.py --repo <github_repository_url> --output report.json
+```
+
+The process runs unattended. It clones the default branch into a temporary directory, inspects it,
+writes the report, and removes the clone. It does not install dependencies or run code from the target.
+Progress goes to stderr.
+
+Optional arguments:
+
+| Argument | Meaning |
+|---|---|
+| `--max-steps N` | Positive maximum number of LLM turns; default 40 |
+| `--trace PATH` | Trace destination; default is the output path with suffix `.trace.json` |
+| `--quiet` | Suppress per-step progress messages |
+
+Exit code `0` means the inspection completed and the report was written. Fatal errors return `1`
+with a useful message; invalid CLI arguments return `2`, and interruption returns `130`.
+If the turn budget expires, the run returns `1`, saves an incomplete trace, and does not write a new
+report. Increase `--max-steps` and rerun. Output and trace destinations must differ. Output directories
+are created automatically, and each JSON file is replaced atomically.
+
+## Report contract
 
 ```json
 {
@@ -71,105 +110,124 @@ with `1` without writing a report.
 }
 ```
 
-- `severity` is one of `critical`, `high`, `medium`, `low`.
-- `category` is one of `repository_hygiene`, `dependency_management`, `code_quality`, `testing`,
-  `ci_cd`, `security`, `configuration`, `collaboration`, `build_release`.
-- `file` and `line` are `null` when they don't apply. An empty `violations` array is a valid result.
-- Secret values are never written; they are masked as `[REDACTED_...]`.
+Every finding contains all nine fields. Severity is `critical`, `high`, `medium`, or `low`.
+Inapplicable file and line values are JSON `null`. A completed inspection can have an empty
+`violations` array. Findings are sorted by severity and rule ID.
 
-`sample_report.json` is a real output of the agent and `sample_report.trace.json` is its tool-call trace.
+Inspection covers repository hygiene, dependency management, code quality, testing, CI/CD,
+security, configuration, collaboration, and build/release practices. ML training, datasets,
+experiment tracking, and model-validation practices are outside the audit's scope.
+
+Generate the submission example and its trace with:
+
+```bash
+python agent.py --repo https://github.com/kennethreitz/samplemod --output sample_report.json
+```
+
+The accompanying trace identifies the model, inspected commit, completion status, tool calls,
+redacted arguments, and result previews. The sample must come from this real command, rather than
+from a scripted test model or manually entered findings.
 
 ## Architecture
 
-```
-agent.py   CLI: validate URL -> shallow clone into a temp dir -> run Auditor -> write report + trace
-core.py    Auditor: the agent loop, tool dispatch, finding validation, self-review
-llm.py     OpenAI-compatible chat-completions client (tool calling, retries, timeouts)
-prompts.py System prompt: workflow, DevOps rule catalog, precision rules, severity guide
-tools.py   Read-only inspection tools + their JSON schemas
-report.py  Report schema validation, normalization and secret redaction
-```
+| Module | Responsibility |
+|---|---|
+| `agent.py` | CLI, URL validation, temporary clone, output and exit handling |
+| `core.py` | Explicit LLM/tool loop, dispatch, evidence validation, duplicate rejection, self-review |
+| `llm.py` | OpenAI-compatible SDK client, configuration checks, retries, provider tool metadata |
+| `prompts.py` | General DevOps rules, investigation guidance, severity and precision rules |
+| `tools.py` | Read-only repository tools and their function schemas |
+| `search_worker.py` | Trusted subprocess that bounds regex search execution time |
+| `report.py` | Finding schema validation, normalization, redaction and report assembly |
+| `evaluate.py` | Real-model evaluation on disposable repositories with known defects |
 
-### Agent loop (Observe -> Reason -> Select tool -> Execute -> Interpret -> Report)
+The agent cycle is **Observe → Reason → Select Tool → Execute Tool → Interpret Results → Report**.
 
-```
-            +---------------------------------------------------------+
-            |                                                         v
- system prompt + task --> LLM: short reasoning + tool call(s) --> dispatch tool
-            ^                                                         |
-            +------------- tool result appended to history <----------+
-```
+1. The LLM receives the repository URL and tracked-file count, then chooses what to inspect.
+2. Every tool result is appended to the conversation. The next tool call depends on these results.
+3. `record_violation` validates each finding. A cited file must be tracked and inspected; a cited
+   line must have actually appeared in a tool result. Validation errors are returned to the LLM
+   so it can investigate or correct its arguments. Exact rule/file/line duplicates are rejected.
+4. The first `finish` request returns the recorded findings and a coverage/precision checklist.
+   The agent can investigate further or withdraw findings. A subsequent `finish` completes the run.
+5. Tool failures become observations rather than fabricated findings. Tool outputs are bounded,
+   and older results are elided when conversation history grows large.
 
-1. The LLM gets only the repository URL and the number of tracked files. It has to explore with
-   tools; nothing is pre-scanned for it.
-2. Each turn it writes a short observation and plan, then calls one or more tools. The result of
-   every call goes back into the conversation, and the LLM chooses the next call from it, for
-   example reading a workflow it saw in `list_files` or searching history for a secret it found.
-3. Confirmed problems are recorded one at a time with `record_violation`. The agent validates
-   each one and returns errors so the LLM can correct itself:
-   - schema checks (rule id format, category, severity, required text fields);
-   - the cited file must be tracked in the repository;
-   - a finding with a line number must be in a file the agent actually read or saw in search
-     results, so evidence is grounded in tool output;
-   - duplicates (same rule, file and line) are rejected.
-4. The first `finish` call triggers a self-review: the agent shows the LLM every recorded finding
-   and a coverage checklist, and the LLM can withdraw unsupported findings or investigate gaps.
-   The second `finish` ends the run.
-5. Bad tool arguments, unknown tools, missing files and invalid regexes are returned to the LLM as
-   `ERROR: ...` messages, not raised. Large tool outputs are truncated and old outputs are elided
-   when the conversation gets long. If the step budget runs out, the findings recorded so far are
-   reported.
-
-### Tools
+## Inspection tools
 
 | Tool | Purpose |
 |---|---|
-| `list_files(directory)` | Tracked files (including dotfiles), sizes of large files, and tracked files that match `.gitignore` |
-| `read_file(path, start_line, end_line)` | Line-numbered file contents, up to 300 lines per call |
-| `search_code(pattern, file_glob, ignore_case)` | Regex search over all tracked text files, `path:line: text` |
-| `git_log(max_count, path, search)` | Commit history with file stats, default/remote branches, authors; `search` runs `git log -G` to find secrets that were removed but remain in history |
-| `check_syntax(path)` | Parses `.py` (via `ast`), YAML, JSON or TOML without executing anything |
-| `record_violation(...)` | Records one finding (validated) |
-| `finish(withdraw)` | Self-review, then end the audit |
+| `list_files(directory)` | Discover tracked files, including dotfiles, large files and tracked ignored artifacts |
+| `read_file(path, start_line, end_line)` | Read numbered lines from a tracked text file |
+| `search_code(pattern, file_glob, ignore_case)` | Regex search with file/line evidence and a 10-second worker timeout |
+| `git_log(max_count, path, search)` | Commit metadata; regex history searches include redacted patches |
+| `check_syntax(path)` | Parse Python, YAML, JSON or TOML without executing target code |
+| `record_violation(...)` | Validate and store a finding |
+| `finish(withdraw)` | Review findings, optionally withdraw unsupported ones, then finish |
 
-### Reducing false positives
+Missing optional files are not automatically violations. The prompt recognizes alternatives such
+as `pyproject.toml`, tox, GitLab CI, or other equivalent tools. It excludes guesses about remote
+branch protection and treats placeholders and environment-variable references as acceptable.
+Repository content is treated as untrusted evidence, including instructions embedded in files.
 
-The system prompt (`prompts.py`) holds general DevOps knowledge, not answers for particular
-repositories: a rule catalog for the nine inspection areas, a severity guide, and explicit
-precision rules. Among them: equivalent alternatives are not defects (for example `pyproject.toml`
-instead of `requirements.txt`, or GitLab CI instead of GitHub Actions), missing optional files
-such as LICENSE or CONTRIBUTING are not reported, remote settings like branch protection are never
-inferred, placeholders and `${{ secrets.X }}` are not leaks, there is one finding per root cause,
-and a healthy repository may have no findings.
+## Safety and limitations
 
-## Safety
+- Targets are cloned into disposable directories and are never edited by inspection tools.
+- No target tests, builds, scripts, package installers, or Python imports are executed.
+  The regex worker runs only this project's trusted inspection code.
+- Clone hooks and symlinks are disabled. System/global Git configuration is excluded during cloning,
+  LFS smudging is disabled, and file-protocol submodules are blocked. Submodules are not initialized.
+- Tool paths must stay within the clone. File reads are limited to tracked files; `.git` metadata
+  cannot be read through `read_file`.
+- Credential patterns, assignment values, and private-key blocks are masked before pagination,
+  truncation, logging or trace serialization. Redaction is heuristic, so supported formats are
+  regression-tested; this is not a comprehensive secret-scanning product.
+- Binary files and files over 1 MB are not read/searched. Reads return at most 300 lines and 20,000
+  characters; the agent can request additional ranges. Searches report omitted matches/skipped files.
+- The clone contains up to 200 commits from the default branch. History output states whether it
+  is shallow; absence of a match does not establish that the entire remote history is clean.
+- Remote settings such as branch protection are unavailable. Runtime test failures are not claimed
+  when only static evidence is available.
+- Detection quality depends on the selected model and available API quota. Review the evidence in
+  findings; benchmark results on small fixtures do not predict hidden-repository grades.
 
-- The target is shallow-cloned into a temporary directory that is deleted after the run, so the
-  original repository is never modified.
-- Repository code is never executed. There is no `pip install`, no test run and no build;
-  `check_syntax` only parses files.
-- The clone disables symlinks, hooks, LFS smudge filters and file-protocol submodules. Tool paths
-  are resolved and rejected if they escape the clone.
-- Secret-like values are masked in tool outputs before they reach the LLM, and again in the
-  report, the trace and the logs.
-- `git` and LLM calls have timeouts. The OpenAI SDK retries rate limits and server errors.
-
-## Tests
+## Automated checks
 
 ```bash
-pip install -r requirements-dev.txt
-pytest -q
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 ruff check .
 ```
 
-The tests run offline. Tool tests use a temporary git repository with known defects. Agent tests
-use a scripted fake LLM to check tool dispatch, finding validation and grounding, duplicate
-rejection, the self-review, error recovery, the step budget, redaction and the CLI exit codes.
-The same checks run in GitHub Actions (`.github/workflows/ci.yml`).
+Tests are offline and require no API key. They use temporary Git repositories, a scripted model for
+control-flow tests, and an SDK mock transport for protocol tests. They cover dispatch and follow-up
+observations, invalid arguments, evidence grounding, withdrawal and duplicates, empty reports,
+error exits, incomplete audits, atomic output, historical patches, credential masking, path escapes,
+regex timeouts, and provider tool metadata. GitHub Actions runs lint and tests on Python 3.10 and 3.12.
 
-## Limitations
+## Real-model evaluation
 
-- Tests of the target repository are not executed (for safety), so failing tests are only reported
-  when they can be shown statically.
-- Remote GitHub settings (branch protection, secrets, environments) are out of reach by design.
-- Results depend on the model. Stronger tool-calling models investigate more thoroughly.
+After configuring `.env`, run:
+
+```bash
+python evaluate.py --output evaluation_results.json
+```
+
+This invokes the real LLM on three disposable local Git repositories:
+
+- `obvious`: missing documentation/ignore/lint/test coverage, tracked logs, a synthetic credential,
+  and a machine-specific path.
+- `subtle`: incorrect branch triggers, ignored test failures, broad permissions, shell interpolation
+  of PR input, a machine-specific default path, and a synthetic credential removed from the latest tree.
+- `healthy`: a small application with tests, bounded development dependencies, linting, working CI,
+  environment-based configuration, and no injected defects.
+
+These are explicitly local fixtures, not hidden instructor repositories. No fixture code is executed.
+The expected defects are kept outside the agent modules and prompts. Each known rule/path can match
+only once; extra or duplicate findings count as false positives. The results include precision,
+recall, missed defects and unmatched findings, which should be reviewed for alternate valid rule
+assignments. Undefined precision/recall denominators are reported as `null`.
+
+Use `--case obvious`, `--case subtle`, or `--case healthy` for an individual case. Reports/traces go
+to `evaluation_runs/`, which is ignored by Git. For a public-repository check, use the normal CLI and
+compare its report against the inspected revision recorded in its trace.

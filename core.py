@@ -62,6 +62,8 @@ class Auditor:
         self.trace = []
         self.reviewed = False
         self.done = False
+        self._turn = 0
+        self._review_turn = None
 
     # ----------------------------------------------------------------- dispatch
     def dispatch(self, name, raw_args):
@@ -107,15 +109,21 @@ class Auditor:
         return f"Recorded {vid}."
 
     def finish(self, args):
-        withdrawn = [w for w in args.get("withdraw") or [] if self.violations.pop(str(w), None)]
+        withdraw = args.get('withdraw') or []
+        if not isinstance(withdraw, list) or not all(isinstance(w, str) for w in withdraw):
+            raise ValueError('withdraw must be a list of finding IDs')
+        withdrawn = [w for w in withdraw if self.violations.pop(w, None)]
         if not self.reviewed:
             self.reviewed = True
+            self._review_turn = self._turn
             listing = "\n".join(
                 f"{vid}: [{v['rule_id']}/{v['severity']}] {v['file'] or '-'}:{v['line'] or '-'} {v['description']}"
                 for vid, v in self.violations.items()
             ) or "(none)"
             note = f"Withdrew {withdrawn}.\n" if withdrawn else ""
             return note + FINISH_REVIEW.format(findings=listing)
+        if self._review_turn == self._turn:
+            return 'Read the self-review result before finishing: call finish again on your next turn.'
         self.done = True
         return f"Audit finished. Withdrew {withdrawn or 'nothing'}. {len(self.violations)} findings kept."
 
@@ -140,6 +148,7 @@ class Auditor:
         ]
         schemas = TOOL_SCHEMAS + AGENT_SCHEMAS
         for step in range(1, self.max_steps + 1):
+            self._turn = step
             if step == self.max_steps - 2:
                 messages.append({"role": "user", "content": (
                     "Step budget almost exhausted. Record any remaining confirmed violations now, "

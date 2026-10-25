@@ -69,6 +69,12 @@ def test_empty_findings_report_is_valid(repo):
     assert auditor.done
 
 
+def test_self_review_cannot_be_skipped_with_batched_finish_calls(repo):
+    _, auditor, llm = run(repo, [[call('finish'), call('finish')], [call('finish')]])
+    assert len(llm.requests) == 2 and auditor.done
+    assert 'next turn' in llm.requests[1][-1]['content']
+
+
 def test_rejects_duplicates_and_supports_withdraw(repo):
     report, _, llm = run(repo, [
         [call("read_file", path="app/config.py")],
@@ -172,3 +178,19 @@ def test_cli_creates_trace_parent(cli, monkeypatch, tmp_path):
     assert agent.main(['--repo', 'https://github.com/x/y', '--output', str(out), '--trace', str(trace)]) == 0
     assert json.loads(out.read_text())['violations'] == []
     assert json.loads(trace.read_text())['completed'] is True
+
+
+def test_failed_atomic_write_preserves_previous_output(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    output = tmp_path / 'report.json'
+    output.write_text('{"previous": true}\n')
+
+    def fail_replace(self, destination):
+        raise OSError('simulated replacement failure')
+
+    monkeypatch.setattr(Path, 'replace', fail_replace)
+    with pytest.raises(OSError, match='simulated'):
+        agent.write_json(output, {'new': True})
+    assert json.loads(output.read_text()) == {'previous': True}
+    assert list(tmp_path.iterdir()) == [output]
