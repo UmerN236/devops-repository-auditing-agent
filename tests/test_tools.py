@@ -31,6 +31,17 @@ def test_read_file_range(repo):
     assert "2: AWS_KEY" in out and "1: DEBUG" not in out
 
 
+def test_redaction_precedes_truncation_and_pagination(repo):
+    secret = 'VioletCedar3421River'
+    (repo / 'long.py').write_text('#' * 278 + ' password = "' + secret + '"\n')
+    (repo / 'key.pem').write_text('-----BEGIN PRIVATE KEY-----\nQm9keVNlY3JldA==\n-----END PRIVATE KEY-----\n')
+    tools = RepoTools(repo)
+    assert secret[:7] not in tools.read_file('long.py')
+    assert secret[:7] not in tools.search_code('password')
+    middle = tools.read_file('key.pem', start_line=2, end_line=2)
+    assert 'Qm9keVNlY3JldA==' not in middle and 'REDACTED_PRIVATE_KEY' in middle
+
+
 def test_read_file_errors(repo):
     tools = RepoTools(repo)
     with pytest.raises(ToolError, match="not found"):

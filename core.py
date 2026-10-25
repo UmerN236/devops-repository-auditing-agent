@@ -3,7 +3,7 @@
 import json
 
 from prompts import FINISH_REVIEW, SYSTEM_PROMPT
-from report import CATEGORIES, SEVERITIES, build_report, normalize_violation, redact
+from report import CATEGORIES, SEVERITIES, build_report, normalize_violation, redact, redact_data
 from tools import TOOL_SCHEMAS, ToolError
 
 MAX_TOOL_CHARS = 24_000      # cap on a single tool result sent to the LLM
@@ -155,13 +155,18 @@ class Auditor:
                 continue
             for call in calls:
                 name, raw = call["function"]["name"], call["function"]["arguments"]
-                result = str(self.dispatch(name, raw))
+                result = redact(str(self.dispatch(name, raw)))
                 if len(result) > MAX_TOOL_CHARS:
                     result = result[:MAX_TOOL_CHARS] + "\n... [output truncated]"
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
-                self.log(f"[step {step}] {name}({redact(raw)[:200]}) -> {redact(result.splitlines()[0])[:150]}")
-                entry["tool_calls"].append({"tool": name, "arguments": redact(raw),
-                                            "result_preview": redact(result[:500])})
+                try:
+                    safe_args = json.dumps(redact_data(json.loads(raw)))
+                except (ValueError, TypeError):
+                    safe_args = "[invalid JSON arguments omitted]"
+                first_line = (result.splitlines() or ["(empty result)"])[0]
+                self.log(f"[step {step}] {name}({safe_args[:200]}) -> {first_line[:150]}")
+                entry["tool_calls"].append({"tool": name, "arguments": safe_args,
+                                            "result_preview": result[:500]})
             if self.done:
                 break
         else:

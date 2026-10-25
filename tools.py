@@ -111,13 +111,13 @@ class RepoTools:
         text = self._read_text(full)
         if text is None:
             return f"{path}: binary or larger than {MAX_FILE_BYTES} bytes ({full.stat().st_size} bytes); not shown."
-        lines = text.splitlines()
+        lines = redact(text).splitlines()
         start = max(1, int(start_line or 1))
         end = min(len(lines), int(end_line) if end_line else start + MAX_READ_LINES - 1)
         end = min(end, start + MAX_READ_LINES - 1)
         self.inspected.add(path)
         body = "\n".join(
-            f"{i}: {redact(lines[i - 1][:MAX_LINE_CHARS])}" for i in range(start, end + 1)
+            f"{i}: {lines[i - 1][:MAX_LINE_CHARS]}" for i in range(start, end + 1)
         )
         header = f"{path} (lines {start}-{end} of {len(lines)})"
         more = f"\n... file continues; call read_file with start_line={end + 1}" if end < len(lines) else ""
@@ -138,11 +138,12 @@ class RepoTools:
             text = self._read_text(full)
             if text is None:
                 continue
+            safe_lines = redact(text).splitlines()
             for i, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
                     total += 1
                     if len(results) < MAX_MATCHES:
-                        results.append(f"{f}:{i}: {redact(line.strip()[:MAX_LINE_CHARS])}")
+                        results.append(f"{f}:{i}: {safe_lines[i - 1].strip()[:MAX_LINE_CHARS]}")
                         self.inspected.add(f)
         if not results:
             return f"No matches for /{pattern}/" + (f" in files matching {file_glob}" if file_glob else "")
@@ -170,7 +171,7 @@ class RepoTools:
             f"Remote branches: {', '.join(branches[:30]) or 'unknown'}\n"
             f"Authors (commits in clone history): {'; '.join(a.strip() for a in authors[:10])}\n"
         )
-        return header + "\n" + (redact(log) or "No commits matched.")
+        return redact(header + "\n" + (log or "No commits matched."))
 
     def check_syntax(self, path):
         path, full = self._resolve(path)

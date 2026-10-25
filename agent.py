@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from core import Auditor
 from llm import LLM, LLMError
+from report import redact
 from tools import RepoTools
 
 GITHUB_URL = re.compile(r"^https?://(www\.)?github\.com/([\w.-]+)/([\w.-]+?)(\.git)?/?$")
@@ -27,7 +28,7 @@ class FatalError(Exception):
 
 
 def log(msg):
-    print(msg, file=sys.stderr, flush=True)
+    print(redact(str(msg)), file=sys.stderr, flush=True)
 
 
 def normalize_url(url):

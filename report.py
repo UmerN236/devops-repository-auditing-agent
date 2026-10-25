@@ -19,7 +19,6 @@ _TOKENS = [
     (re.compile(r"xox[abprs]-[A-Za-z0-9-]{10,}"), "[REDACTED_SLACK_TOKEN]"),
     (re.compile(r"AIza[0-9A-Za-z_-]{35}"), "[REDACTED_GOOGLE_KEY]"),
     (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "[REDACTED_JWT]"),
-    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY_HEADER]"),
 ]
 # Credentials in URLs: scheme://user:password@host
 _URL_CREDS = re.compile(r"(://[^/\s:@]+:)([^@\s/]+)(@)")
@@ -27,10 +26,19 @@ _SECRET_NAME = r"[\w.-]*?(?:password|passwd|pwd|secret|token|api[_-]?key|access[
 # name = "value"  /  "name": "value"  /  name: 'value'
 _QUOTED = re.compile(rf"(?i)\b({_SECRET_NAME})\b([\"']?\s*[:=]\s*)([\"'])([^\"'\n]{{4,}})\3")
 # NAME=value / name: value (unquoted, .env and YAML style); needs letters and digits.
-_UNQUOTED = re.compile(rf"(?i)\b({_SECRET_NAME})\b(\s*[:=]\s*)([A-Za-z0-9_+/=@!*.-]{{8,}})(?=\s*(?:#|$))", re.M)
+_UNQUOTED = re.compile(rf"(?i)\b({_SECRET_NAME})\b([\"']?[ \t]*[:=][ \t]*)([A-Za-z0-9_+/=@!*.-]+)(?=[ \t]*(?:#|$))", re.M)
 _PLACEHOLDER = re.compile(
-    r"(?i)your|example|change.?me|placeholder|dummy|sample|fake|replace|redacted|xxx|\*\*\*|<|\$|\{\{|%\(|^(.)\1+$"
+    r"(?i)^(?:your[-_ ].*|example(?:[-_ ].*)?|change.?me|placeholder|dummy|sample|fake|"
+    r"replace(?:[-_ ].*)?|\[REDACTED[^\]]*\]|xxx+|\*+|<[^>]*>|\$.*|\{\{.*|%\(.*)$"
 )
+_PEM = re.compile(r"-----BEGIN ([A-Z ]*PRIVATE KEY)-----.*?(?:-----END \1-----|\Z)", re.S)
+_YAML_BLOCK = re.compile(
+    rf"(?im)^([ \t]*[\"']?{_SECRET_NAME}[\"']?[ \t]*:[ \t]*[|>][-+]?[^\n]*\n)"
+    r"((?:[ \t]+[^\n]*(?:\n|$))+)")
+
+
+def _mask_lines(value, marker):
+    return "\n".join(marker if line else "" for line in value.split("\n"))
 
 
 def _looks_real(value):
@@ -41,6 +49,9 @@ def redact(text):
     """Mask likely secret values while keeping enough context to reason about them."""
     if not text:
         return text
+    # Redact complete blocks before line slicing, so a requested middle line is safe too.
+    text = _PEM.sub(lambda m: _mask_lines(m.group(0), "[REDACTED_PRIVATE_KEY]"), text)
+    text = _YAML_BLOCK.sub(lambda m: m.group(1) + _mask_lines(m.group(2), "  [REDACTED_SECRET]"), text)
     for pattern, repl in _TOKENS:
         text = pattern.sub(repl, text)
     text = _URL_CREDS.sub(r"\1[REDACTED]\3", text)
@@ -48,10 +59,28 @@ def redact(text):
         lambda m: m.group(0) if not _looks_real(m.group(4))
         else f"{m.group(1)}{m.group(2)}{m.group(3)}[REDACTED_SECRET]{m.group(3)}", text)
     text = _UNQUOTED.sub(
-        lambda m: m.group(0) if not (_looks_real(m.group(3)) and re.search(r"\d", m.group(3))
-                                     and re.search(r"[A-Za-z]", m.group(3)))
+        lambda m: m.group(0) if (not _looks_real(m.group(3)) or m.group(3).lower() == m.group(1).lower()
+                                  or m.group(3).startswith(("os.", "process.", "settings.", "config.")))
         else f"{m.group(1)}{m.group(2)}[REDACTED_SECRET]", text)
     return text
+
+
+def redact_data(value):
+    """Redact structured tool arguments before serializing them (including escaped quotes)."""
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        # Sensitive values can also arrive as structured fields rather than assignment text.
+        result = {}
+        for key, item in value.items():
+            if re.fullmatch(_SECRET_NAME, str(key), re.I) and isinstance(item, str) and _looks_real(item):
+                result[key] = "[REDACTED_SECRET]"
+            else:
+                result[key] = redact_data(item)
+        return result
+    if isinstance(value, list):
+        return [redact_data(item) for item in value]
+    return value
 
 
 def normalize_violation(args, repo_files):

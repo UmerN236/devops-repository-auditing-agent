@@ -1,4 +1,6 @@
-from report import FIELDS, build_report, normalize_violation, redact
+import pytest
+
+from report import FIELDS, build_report, normalize_violation, redact, redact_data
 
 GOOD = {
     "rule_id": "sec-001", "category": "Security", "severity": "CRITICAL", "file": "app/config.py",
@@ -19,6 +21,33 @@ def test_redact_keeps_placeholders_and_references():
     for text in ['password = "changeme"', 'API_KEY="your-api-key-here"', "token: ${{ secrets.TOKEN }}",
                  'api_key = os.environ["API_KEY"]', "password=password", "max_tokens = 1000"]:
         assert redact(text) == text
+
+
+@pytest.mark.parametrize('value', ['MangoRiverPineCedar', 'abc', '123456', 'p@ss-word!23', 'myexampleSecret42'])
+def test_unquoted_credentials_are_masked(value):
+    assert value not in redact('PASSWORD=' + value)
+
+
+def test_private_key_body_and_unterminated_block_are_masked():
+    body = 'Q2VydGlmaWNhdGVUZXN0Qm9keQ=='
+    for ending in ['\n-----END PRIVATE KEY-----', '']:
+        original = '-----BEGIN PRIVATE KEY-----\n' + body + ending
+        safe = redact(original)
+        assert body not in safe and 'REDACTED_PRIVATE_KEY' in safe
+        assert safe.count('\n') == original.count('\n')
+
+
+def test_yaml_secret_block_preserves_line_numbers():
+    text = 'password: |\n  violetSecret\n  secondSecret\nother: normal\n'
+    safe = redact(text)
+    assert 'violetSecret' not in safe and 'secondSecret' not in safe
+    assert safe.count('\n') == text.count('\n')
+    assert 'other: normal' in safe
+
+
+def test_structured_argument_redaction():
+    safe = redact_data({'evidence': 'password = "abcd1234efgh"', 'password': 'MangoRiverPineCedar'})
+    assert 'abcd1234efgh' not in str(safe) and 'MangoRiverPineCedar' not in str(safe)
 
 
 def test_normalize_valid_violation():
