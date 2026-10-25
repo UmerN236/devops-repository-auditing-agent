@@ -254,7 +254,6 @@ Measured with `nvidia/nemotron-3-ultra-550b-a55b:free` (OpenRouter, 2026-10-25):
 |---|---|---|---|---|---|
 | healthy | 0 | 0 | 0 | n/a | n/a |
 | obvious | 7 | 0 | 0 | 1.00 | 1.00 |
-| subtle | pending | | | | |
 
 Use `--case obvious`, `--case subtle`, or `--case healthy` for an individual case; a single-case
 run updates that case's entry in the existing results file. Reports/traces go
