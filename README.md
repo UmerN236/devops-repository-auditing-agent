@@ -44,6 +44,9 @@ LLM_TIMEOUT=90
 OpenRouter routes the request to the next model in the list. Free models (ids ending in `:free`)
 cost nothing but have per-minute and daily request limits; one audit uses roughly 15-40 requests.
 Any OpenRouter model that supports tool calling works.
+Fallback settings are ignored for other provider endpoints. Model fallback does not increase an
+account's daily free-request allowance; check [OpenRouter's limits](https://openrouter.ai/docs/api/reference/limits)
+when a run reports exhausted quota.
 
 For **Gemini**, create a key in [Google AI Studio](https://aistudio.google.com/apikey):
 
@@ -107,6 +110,7 @@ with a useful message; invalid CLI arguments return `2`, and interruption return
 If the turn budget expires, the run returns `1`, saves an incomplete trace, and does not write a new
 report. Increase `--max-steps` and rerun. Output and trace destinations must differ. Output directories
 are created automatically, and each JSON file is replaced atomically.
+If the provider fails after inspection begins, an incomplete trace is preserved for diagnosis.
 
 ## Report contract
 
@@ -147,6 +151,8 @@ redacted arguments, and result previews. The sample must come from this real com
 from a scripted test model or manually entered findings. The committed `sample_report.json` was
 produced this way with `nvidia/nemotron-3-ultra-550b-a55b:free` through OpenRouter (20 LLM turns,
 6 findings).
+New traces distinguish the configured `model` from `models_used` and record the responding model on
+each turn, including fallback models selected by a gateway.
 
 ## Architecture
 
@@ -189,6 +195,8 @@ Missing optional files are not automatically violations. The prompt recognizes a
 as `pyproject.toml`, tox, GitLab CI, or other equivalent tools. It excludes guesses about remote
 branch protection and treats placeholders and environment-variable references as acceptable.
 Repository content is treated as untrusted evidence, including instructions embedded in files.
+Development/documentation dependencies need not appear in runtime package metadata, and an assertion
+of a concrete return value is not treated as meaningless merely for lacking other assertions.
 
 ## Safety and limitations
 
@@ -256,6 +264,8 @@ Measured with `nvidia/nemotron-3-ultra-550b-a55b:free` (OpenRouter, 2026-10-25):
 | obvious | 7 | 0 | 0 | 1.00 | 1.00 |
 
 Use `--case obvious`, `--case subtle`, or `--case healthy` for an individual case; a single-case
-run updates that case's entry in the existing results file. Reports/traces go
+run updates that case's entry in the existing results file when the configured model matches.
+Changing models starts a new set of results, so old scores are not attributed to a new model.
+New case results include their measurement time and responding models. Reports/traces go
 to `evaluation_runs/`, which is ignored by Git. For a public-repository check, use the normal CLI and
 compare its report against the inspected revision recorded in its trace.
