@@ -132,7 +132,7 @@ If the provider fails after inspection begins, an incomplete trace is preserved 
 }
 ```
 
-Every finding contains all nine fields. Severity is `critical`, `high`, `medium`, or `low`.
+Every finding contains all eight fields. Severity is `critical`, `high`, `medium`, or `low`.
 Inapplicable file and line values are JSON `null`. A completed inspection can have an empty
 `violations` array. Findings are sorted by severity and rule ID.
 
