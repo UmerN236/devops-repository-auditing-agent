@@ -4,6 +4,8 @@ import math
 import os
 import uuid
 
+from report import register_secret
+
 
 class LLMError(Exception):
     pass
@@ -16,6 +18,7 @@ class LLM:
         api_key = api_key or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise LLMError("No API key configured. Set LLM_API_KEY (see .env.example).")
+        register_secret(api_key)
         self.model = model or os.getenv("LLM_MODEL") or "gpt-5.4-mini"
         temperature = os.getenv("LLM_TEMPERATURE", "").strip()
         try:

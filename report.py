@@ -9,6 +9,13 @@ CATEGORIES = [
 ]
 FIELDS = ["rule_id", "category", "severity", "file", "line", "description", "evidence", "recommendation"]
 RULE_ID = re.compile(r"^[A-Z]{2,5}-\d{3}$")
+_CONFIGURED_SECRETS = set()
+
+
+def register_secret(value):
+    """Also mask the active API credential if a provider echoes it in an error."""
+    if value:
+        _CONFIGURED_SECRETS.add(value)
 
 # Well-known token formats.
 _TOKENS = [
@@ -52,6 +59,8 @@ def redact(text):
     """Mask likely secret values while keeping enough context to reason about them."""
     if not text:
         return text
+    for secret in sorted(_CONFIGURED_SECRETS, key=len, reverse=True):
+        text = text.replace(secret, '[REDACTED_CONFIGURED_CREDENTIAL]')
     # Redact complete blocks before line slicing, so a requested middle line is safe too.
     text = _PEM.sub(lambda m: _mask_lines(m.group(0), "[REDACTED_PRIVATE_KEY]"), text)
     text = _YAML_BLOCK.sub(lambda m: m.group(1) + _mask_lines(m.group(2), "  [REDACTED_SECRET]"), text)

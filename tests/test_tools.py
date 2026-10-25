@@ -81,6 +81,12 @@ def test_check_syntax(repo):
     assert "syntax OK" in tools.check_syntax(".github/workflows/ci.yml")
 
 
+def test_yaml_custom_tags_are_not_mistaken_for_syntax_errors(repo):
+    (repo / '.gitlab-ci.yml').write_text('job:\n  script: !reference [.shared, script]\n')
+    git(repo, 'add', '.gitlab-ci.yml')
+    assert 'syntax OK' in RepoTools(repo).check_syntax('.gitlab-ci.yml')
+
+
 def test_refuses_untracked_metadata_and_symlink_escape(repo, tmp_path):
     tools = RepoTools(repo)
     with pytest.raises(ToolError, match='tracked file not found'):

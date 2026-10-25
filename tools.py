@@ -221,7 +221,8 @@ class RepoTools:
             if suffix == ".py":
                 ast.parse(text, filename=path)
             elif suffix in (".yml", ".yaml"):
-                list(yaml.safe_load_all(text))
+                # Compose syntax nodes without constructing objects or rejecting valid custom tags.
+                list(yaml.compose_all(text, Loader=yaml.SafeLoader))
             elif suffix == ".json":
                 json.loads(text)
             elif suffix == ".toml" and tomllib:

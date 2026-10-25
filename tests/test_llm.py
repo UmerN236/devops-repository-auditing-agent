@@ -4,6 +4,7 @@ import openai
 import pytest
 
 from llm import LLM, LLMError
+from report import redact
 
 try:
     import httpx2 as httpx
@@ -82,3 +83,8 @@ def test_wraps_provider_failure(api, monkeypatch):
     monkeypatch.setattr(client.client.chat.completions, 'create', fail)
     with pytest.raises(LLMError, match='LLM request failed'):
         client.chat([], [])
+
+
+def test_provider_echo_of_active_credential_is_masked(api):
+    LLM(api_key='unrecognized-provider-credential')
+    assert 'unrecognized-provider-credential' not in redact('Invalid key: unrecognized-provider-credential')
