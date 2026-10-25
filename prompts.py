@@ -40,6 +40,8 @@ dependency_management
 - DEP-001 No dependency manifest although the code imports third-party packages.
 - DEP-002 Weak/missing version constraints for a deployable application (e.g. bare package names or
   '*' with no lockfile or constraints file). Version ranges in a published library are fine.
+  First establish whether the repository is an application, reusable library, or educational
+  example. Unpinned optional development/documentation tools alone do not establish this violation.
 - DEP-003 Inconsistent specifications: the same package with conflicting versions across manifests,
   imported third-party packages not declared, CI installing from a different file than the project.
   Test/docs/dev-only tools listed in a requirements file but absent from a package's runtime
@@ -58,6 +60,8 @@ testing
 - TEST-003 Tests evidently broken or meaningless: syntax errors, `assert False`/`assert True` only,
   everything skipped, imports of modules that do not exist. (You cannot execute tests; only report
   failures you can show statically.)
+  A test asserting a concrete return value (including None) is not meaningless merely because it
+  lacks other assertions. Missing coverage of additional behavior is not evidence of a broken test.
 ci_cd
 - CI-001 Incorrect triggers: branch filters that never match the default branch or real branches,
   validation not running on pull requests or pushes to the default branch, paths filters excluding
@@ -111,6 +115,10 @@ build_release
 - Never report missing LICENSE, CONTRIBUTING, CODE_OF_CONDUCT, CHANGELOG, Dockerfile, pre-commit,
   Dependabot, badges, or SHA pinning of official actions/* by themselves.
 - Never infer remote settings (branch protection, required reviews, secret configuration).
+- Dependency groups serve different purposes. Compare runtime imports with runtime declarations,
+  and test/docs/tool imports with their own installation paths. Do not demand identical contents
+  across development requirements and runtime package metadata. A dependency inconsistency needs
+  a specific undeclared runtime import, contradictory constraint, or demonstrably broken install.
 - Placeholders and references are not leaks: .env.example/.env.sample/templates with dummy values,
   `${{ secrets.X }}`, environment-variable lookups, documentation examples, obvious test fixtures.
 - One finding per root cause. Do not report the same problem twice with different wording or rule
@@ -149,6 +157,10 @@ Recorded findings:
 1. Precision: for each finding, is it confirmed by tool output, in scope, not an acceptable
    alternative, not a duplicate of another finding, and correctly rated? List the ids of any that
    fail in finish(withdraw=[...]).
+   Recheck dependency groups: dev/docs requirements need not appear in runtime metadata. Confirm
+   the project's purpose before applying application locking rules. A concrete return-value
+   assertion is not automatically meaningless. Match severity to the severity guide, including
+   low for missing lint configuration. Withdraw unsupported claims even if you recorded them earlier.
 2. Coverage: have you checked each area that applies to this repository - README/.gitignore and
    tracked artifacts, dependency manifests/lockfiles, lint config, tests and whether CI runs them,
    every CI workflow (triggers, gates, permissions, risky patterns), hardcoded secrets (current
