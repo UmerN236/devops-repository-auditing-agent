@@ -26,6 +26,7 @@ MAX_READ_LINES = 300    # lines returned per read_file call
 MAX_LINE_CHARS = 300    # long lines are cut to this length
 MAX_MATCHES = 80        # search_code results
 MAX_FILE_BYTES = 1_000_000  # files larger than this are not read/searched
+MAX_OUTPUT_CHARS = 20_000
 GIT_TIMEOUT = 60
 
 
@@ -37,6 +38,7 @@ class RepoTools:
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.inspected = set()  # files whose content the agent has actually seen
+        self.observed_lines = {}  # path -> current-tree lines actually returned to the LLM
         self._files = None
 
     # ------------------------------------------------------------------ helpers
@@ -61,11 +63,25 @@ class RepoTools:
         return self._files
 
     def _resolve(self, path):
-        path = (path or "").strip().lstrip("/").removeprefix("./")
+        if not isinstance(path, str):
+            raise ToolError('path must be a string')
+        if Path(path).is_absolute():
+            raise ToolError('path escapes the repository: use a relative path')
+        path = path.strip().removeprefix("./")
         full = (self.root / path).resolve()
         if full != self.root and self.root not in full.parents:
             raise ToolError("path escapes the repository")
         return path, full
+
+    def _tracked_file(self, path):
+        path, full = self._resolve(path)
+        if path not in self.files() or not full.is_file():
+            raise ToolError(f"tracked file not found: {path}")
+        return path, full
+
+    def _observe(self, path, lines):
+        self.inspected.add(path)
+        self.observed_lines.setdefault(path, set()).update(lines)
 
     def _read_text(self, full):
         if full.stat().st_size > MAX_FILE_BYTES:
@@ -105,9 +121,7 @@ class RepoTools:
         return "\n".join(lines)
 
     def read_file(self, path, start_line=1, end_line=None):
-        path, full = self._resolve(path)
-        if not full.is_file():
-            raise ToolError(f"file not found: {path}")
+        path, full = self._tracked_file(path)
         text = self._read_text(full)
         if text is None:
             return f"{path}: binary or larger than {MAX_FILE_BYTES} bytes ({full.stat().st_size} bytes); not shown."
@@ -115,10 +129,17 @@ class RepoTools:
         start = max(1, int(start_line or 1))
         end = min(len(lines), int(end_line) if end_line else start + MAX_READ_LINES - 1)
         end = min(end, start + MAX_READ_LINES - 1)
-        self.inspected.add(path)
-        body = "\n".join(
-            f"{i}: {lines[i - 1][:MAX_LINE_CHARS]}" for i in range(start, end + 1)
-        )
+        body, shown, size = [], [], 0
+        for i in range(start, end + 1):
+            row = f"{i}: {lines[i - 1][:MAX_LINE_CHARS]}"
+            if size + len(row) > MAX_OUTPUT_CHARS:
+                break
+            body.append(row)
+            shown.append(i)
+            size += len(row) + 1
+        self._observe(path, shown)
+        end = shown[-1] if shown else start - 1
+        body = "\n".join(body)
         header = f"{path} (lines {start}-{end} of {len(lines)})"
         more = f"\n... file continues; call read_file with start_line={end + 1}" if end < len(lines) else ""
         return f"{header}\n{body}{more}" if lines else f"{path} is empty."
@@ -132,7 +153,7 @@ class RepoTools:
         for f in self.files():
             if file_glob and not (fnmatch.fnmatch(f, file_glob) or fnmatch.fnmatch(Path(f).name, file_glob)):
                 continue
-            full = self.root / f
+            _, full = self._resolve(f)
             if not full.is_file():
                 continue
             text = self._read_text(full)
@@ -144,7 +165,7 @@ class RepoTools:
                     total += 1
                     if len(results) < MAX_MATCHES:
                         results.append(f"{f}:{i}: {safe_lines[i - 1].strip()[:MAX_LINE_CHARS]}")
-                        self.inspected.add(f)
+                        self._observe(f, [i])
         if not results:
             return f"No matches for /{pattern}/" + (f" in files matching {file_glob}" if file_glob else "")
         extra = f"\n... {total - MAX_MATCHES} more matches not shown; narrow the pattern or glob." if total > MAX_MATCHES else ""
@@ -152,9 +173,11 @@ class RepoTools:
 
     def git_log(self, max_count=20, path=None, search=None):
         max_count = max(1, min(int(max_count or 20), 100))
-        args = ["log", f"-n{max_count}", "--date=short", "--format=%h %ad %an: %s", "--stat=120,60"]
+        args = ["log", f"-n{max_count}", "--date=short", "--format=commit %H%n%ad %an: %s",
+                "--no-ext-diff", "--no-textconv", "--stat=120,60"]
         if search:
             args.append(f"-G{search}")
+            args += ["--patch", "--unified=2"]
         if path:
             args += ["--", self._resolve(path)[0]]
         log = self._git(*args).strip()
@@ -171,12 +194,14 @@ class RepoTools:
             f"Remote branches: {', '.join(branches[:30]) or 'unknown'}\n"
             f"Authors (commits in clone history): {'; '.join(a.strip() for a in authors[:10])}\n"
         )
-        return redact(header + "\n" + (log or "No commits matched."))
+        shallow = self._git('rev-parse', '--is-shallow-repository').strip()
+        header += f"Shallow history: {shallow} (only cloned commits are available)\n"
+        result = redact(header + "\n" + (log or "No commits matched."))
+        return result[:MAX_OUTPUT_CHARS] + ('\n... history output truncated; narrow search/path.'
+                                           if len(result) > MAX_OUTPUT_CHARS else '')
 
     def check_syntax(self, path):
-        path, full = self._resolve(path)
-        if not full.is_file():
-            raise ToolError(f"file not found: {path}")
+        path, full = self._tracked_file(path)
         text = self._read_text(full)
         if text is None:
             return f"{path}: binary or too large to check."
@@ -193,7 +218,6 @@ class RepoTools:
             else:
                 return f"{path}: no syntax checker for '{suffix}' files."
         except Exception as e:  # each parser raises its own error type
-            self.inspected.add(path)
             return f"{path}: SYNTAX ERROR: {redact(str(e))[:500]}"
         return f"{path}: syntax OK."
 

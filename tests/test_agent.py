@@ -52,6 +52,23 @@ def test_rejects_line_finding_in_uninspected_file(repo):
     assert "have not inspected" in llm.requests[1][-1]["content"]
 
 
+@pytest.mark.parametrize('line', [2, 99999])
+def test_rejects_lines_outside_observed_range(repo, line):
+    report, _, llm = run(repo, [
+        [call('read_file', path='app/config.py', start_line=1, end_line=1)],
+        [call('record_violation', **{**SECRET, 'line': line})],
+        [call('finish')], [call('finish')],
+    ])
+    assert report['violations'] == []
+    assert 'has not been shown' in llm.requests[2][-1]['content']
+
+
+def test_empty_findings_report_is_valid(repo):
+    report, auditor, _ = run(repo, [[call('list_files')], [call('finish')], [call('finish')]])
+    assert report == {'repository': 'https://github.com/x/y', 'violations': []}
+    assert auditor.done
+
+
 def test_rejects_duplicates_and_supports_withdraw(repo):
     report, _, llm = run(repo, [
         [call("read_file", path="app/config.py")],
@@ -129,3 +146,29 @@ def test_cli_clone_failure(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(agent.subprocess, "run", lambda *a, **k: type("P", (), {"returncode": 128, "stderr": "not found"})())
     assert agent.main(["--repo", "https://github.com/x/missing", "--output", str(tmp_path / "r.json")]) == 1
     assert "Could not clone" in capsys.readouterr().err
+
+
+def test_cli_exhaustion_is_not_reported_as_success(cli, monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(agent, 'LLM', lambda: FakeLLM([[call('list_files')]]))
+    out = tmp_path / 'report.json'
+    assert agent.main(['--repo', 'https://github.com/x/y', '--output', str(out), '--max-steps', '1']) == 1
+    assert not out.exists()
+    assert json.loads(out.with_suffix('.trace.json').read_text())['completed'] is False
+    assert 'Audit incomplete' in capsys.readouterr().err
+
+
+def test_cli_rejects_colliding_paths_and_invalid_budget(tmp_path, capsys):
+    out = str(tmp_path / 'report.json')
+    common = ['--repo', 'https://github.com/x/y', '--output', out]
+    assert agent.main(common + ['--trace', out]) == 1
+    assert 'different paths' in capsys.readouterr().err
+    assert agent.main(common + ['--max-steps', '0']) == 1
+    assert 'at least 1' in capsys.readouterr().err
+
+
+def test_cli_creates_trace_parent(cli, monkeypatch, tmp_path):
+    monkeypatch.setattr(agent, 'LLM', lambda: FakeLLM([[call('finish')], [call('finish')]]))
+    out, trace = tmp_path / 'out.json', tmp_path / 'nested' / 'trace.json'
+    assert agent.main(['--repo', 'https://github.com/x/y', '--output', str(out), '--trace', str(trace)]) == 0
+    assert json.loads(out.read_text())['violations'] == []
+    assert json.loads(trace.read_text())['completed'] is True

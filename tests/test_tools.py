@@ -1,5 +1,5 @@
 import pytest
-from conftest import FAKE_KEY
+from conftest import FAKE_KEY, git
 
 from tools import RepoTools, ToolError
 
@@ -35,6 +35,7 @@ def test_redaction_precedes_truncation_and_pagination(repo):
     secret = 'VioletCedar3421River'
     (repo / 'long.py').write_text('#' * 278 + ' password = "' + secret + '"\n')
     (repo / 'key.pem').write_text('-----BEGIN PRIVATE KEY-----\nQm9keVNlY3JldA==\n-----END PRIVATE KEY-----\n')
+    git(repo, 'add', 'long.py', 'key.pem')
     tools = RepoTools(repo)
     assert secret[:7] not in tools.read_file('long.py')
     assert secret[:7] not in tools.search_code('password')
@@ -67,6 +68,8 @@ def test_git_log_and_history_search(repo):
     assert "Default branch: main" in out and "initial project" in out and "Tester" in out
     hist = tools.git_log(search="ghp_")
     assert "add secret" in hist
+    assert 'token =' in hist and 'REDACTED_GITHUB_TOKEN' in hist
+    assert 'old_secret.txt' in hist and 'Shallow history: false' in hist
     assert "ghp_" + "a" * 36 not in hist
 
 
@@ -75,3 +78,16 @@ def test_check_syntax(repo):
     assert "SYNTAX ERROR" in tools.check_syntax("broken.yml")
     assert "syntax OK" in tools.check_syntax("app/main.py")
     assert "syntax OK" in tools.check_syntax(".github/workflows/ci.yml")
+
+
+def test_refuses_untracked_metadata_and_symlink_escape(repo, tmp_path):
+    tools = RepoTools(repo)
+    with pytest.raises(ToolError, match='tracked file not found'):
+        tools.read_file('.git/config')
+    outside = tmp_path / 'outside.txt'
+    outside.write_text('outside content')
+    (repo / 'escape.txt').symlink_to(outside)
+    git(repo, 'add', 'escape.txt')
+    tools = RepoTools(repo)
+    with pytest.raises(ToolError, match='escapes'):
+        tools.search_code('outside')

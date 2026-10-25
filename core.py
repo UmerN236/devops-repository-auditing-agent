@@ -93,6 +93,11 @@ class Auditor:
         if v["line"] is not None and v["file"] not in self.tools.inspected:
             return (f"ERROR: not recorded: you have not inspected {v['file']} yet. Read it (or find the "
                     "line with search_code) to confirm the line, then record again.")
+        if v["file"] is not None and v["file"] not in self.tools.inspected:
+            return f"ERROR: not recorded: read or search {v['file']} to inspect the evidence first."
+        if v["line"] is not None and v["line"] not in self.tools.observed_lines.get(v["file"], set()):
+            return (f"ERROR: not recorded: line {v['line']} of {v['file']} has not been shown by a tool. "
+                    "Read the cited line, then record again.")
         for vid, other in self.violations.items():
             if (other["rule_id"], other["file"], other["line"]) == (v["rule_id"], v["file"], v["line"]):
                 return f"ERROR: duplicate of {vid}; not recorded."

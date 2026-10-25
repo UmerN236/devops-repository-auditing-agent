@@ -120,9 +120,7 @@ def normalize_violation(args, repo_files):
     if line in ("", "null", "None"):
         line = None
     if line is not None:
-        try:
-            line = int(line)
-        except (TypeError, ValueError):
+        if isinstance(line, bool) or not isinstance(line, int):
             errors.append("line must be an integer or null")
             line = None
         if line is not None and (line < 1 or file is None):

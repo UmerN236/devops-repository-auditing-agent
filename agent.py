@@ -54,6 +54,22 @@ def clone(url, dest):
         raise FatalError(f"Could not clone {url} (does it exist and is it public?): {proc.stderr.strip()}")
 
 
+def write_json(path, data):
+    """Replace an output atomically so interrupted writes cannot leave invalid JSON."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, prefix='.' + path.name,
+                                         suffix='.tmp', delete=False, encoding='utf-8') as stream:
+            temp_path = Path(stream.name)
+            json.dump(data, stream, indent=2, ensure_ascii=False)
+            stream.write('\n')
+        temp_path.replace(path)
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="AI agent that audits a GitHub repository for DevOps violations.")
     parser.add_argument("--repo", required=True, help="Public GitHub repository URL")
@@ -67,6 +83,10 @@ def main(argv=None):
     output = Path(args.output)
     trace_path = Path(args.trace) if args.trace else output.with_suffix(".trace.json")
     try:
+        if args.max_steps < 1:
+            raise FatalError('--max-steps must be at least 1')
+        if output.resolve() == trace_path.resolve():
+            raise FatalError('--output and --trace must be different paths')
         url = normalize_url(args.repo)
         llm = LLM()
         with tempfile.TemporaryDirectory(prefix="audit-") as tmp:
@@ -77,10 +97,13 @@ def main(argv=None):
             auditor = Auditor(llm, RepoTools(repo_dir), url, max_steps=args.max_steps,
                               log=(lambda m: None) if args.quiet else log)
             report = auditor.run()
+            revision = auditor.tools._git('rev-parse', 'HEAD').strip()
 
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(report, indent=2) + "\n")
-        trace_path.write_text(json.dumps({"repository": url, "model": llm.model, "steps": auditor.trace}, indent=2))
+        write_json(trace_path, {"repository": url, "revision": revision, "model": llm.model,
+                               "completed": auditor.done, "steps": auditor.trace})
+        if not auditor.done:
+            raise FatalError(f'Audit incomplete: step budget exhausted. Increase --max-steps; trace: {trace_path}')
+        write_json(output, report)
     except (FatalError, LLMError) as e:
         log(f"ERROR: {e}")
         return 1
