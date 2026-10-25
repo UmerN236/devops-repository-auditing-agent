@@ -1,7 +1,10 @@
+import json
+
 import pytest
 
-from evaluate import score
+from evaluate import previous_cases, score
 from evaluation.cases import EXPECTED, SYNTHETIC_TOKEN, build_case
+from llm import LLMError
 from tools import RepoTools
 
 
@@ -18,6 +21,21 @@ def test_healthy_metrics_do_not_invent_a_recall_score():
     metrics = score([], [])
     assert metrics['precision'] is None and metrics['recall'] is None
     assert metrics['false_positives'] == 0
+
+
+def test_results_are_not_relabelled_as_a_different_model(tmp_path):
+    path = tmp_path / 'results.json'
+    cases = {'healthy': {'false_positives': 0}}
+    path.write_text(json.dumps({'model': 'old-model', 'cases': cases}))
+    assert previous_cases(path, 'old-model') == cases
+    assert previous_cases(path, 'new-model') == {}
+
+
+def test_invalid_existing_results_are_a_useful_error(tmp_path):
+    path = tmp_path / 'results.json'
+    path.write_text('{broken json')
+    with pytest.raises(LLMError, match='Invalid evaluation results file'):
+        previous_cases(path, 'model')
 
 
 @pytest.mark.parametrize('name', EXPECTED)

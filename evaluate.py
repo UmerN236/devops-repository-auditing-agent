@@ -34,6 +34,19 @@ def score(violations, expected):
             'matched': matched, 'unmatched_findings': extras, 'missed': remaining}
 
 
+def previous_cases(path, model):
+    """Preserve earlier runs only when they used the same configured model."""
+    if not path.exists():
+        return {}
+    try:
+        previous = json.loads(path.read_text(encoding='utf-8'))
+    except (ValueError, TypeError) as error:
+        raise LLMError(f'Invalid evaluation results file: {path}') from error
+    if not isinstance(previous, dict) or not isinstance(previous.get('cases', {}), dict):
+        raise LLMError(f'Invalid evaluation results file: {path}')
+    return previous.get('cases', {}) if previous.get('model') == model else {}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', choices=['all', *EXPECTED], default='all')
@@ -50,20 +63,24 @@ def main(argv=None):
                   'method': 'Rule/path matching on local synthetic fixtures; human review of unmatched findings required.',
                   'cases': {}}
         if args.case != 'all' and args.output.exists():
-            # Running one case updates its entry and keeps earlier cases' results.
-            result['cases'] = json.loads(args.output.read_text(encoding='utf-8')).get('cases', {})
+            result['cases'] = previous_cases(args.output, llm.model)
         for name in EXPECTED if args.case == 'all' else [args.case]:
             with tempfile.TemporaryDirectory(prefix='audit-eval-') as temp:
                 root = build_case(Path(temp) / name, name)
                 auditor = Auditor(llm, RepoTools(root), f'fixture://{name}', max_steps=args.max_steps, log=log)
-                report = auditor.run()
-                write_json(args.runs_dir / f'{name}.trace.json', {
-                    'repository': f'fixture://{name}', 'revision': git(root, 'rev-parse', 'HEAD'),
-                    'model': llm.model, 'completed': auditor.done, 'steps': auditor.trace})
+                try:
+                    report = auditor.run()
+                finally:
+                    write_json(args.runs_dir / f'{name}.trace.json', {
+                        'repository': f'fixture://{name}', 'revision': git(root, 'rev-parse', 'HEAD'),
+                        'model': llm.model, 'completed': auditor.done, 'steps': auditor.trace,
+                        'models_used': list(dict.fromkeys(s['model'] for s in auditor.trace))})
                 if not auditor.done:
                     raise LLMError(f'{name}: incomplete audit; increase --max-steps')
                 write_json(args.runs_dir / f'{name}.json', report)
                 metrics = score(report['violations'], EXPECTED[name])
+                metrics['run_at'] = datetime.now(timezone.utc).isoformat()
+                metrics['models_used'] = list(dict.fromkeys(s['model'] for s in auditor.trace))
                 result['cases'][name] = metrics
                 write_json(args.output, result)
                 log(f'{name}: TP={metrics["true_positives"]} FP={metrics["false_positives"]} '
