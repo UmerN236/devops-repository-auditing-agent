@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local configuration (real credentials)
+.env
+
+# Agent outputs from local runs
+report.json
+report.trace.json
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
