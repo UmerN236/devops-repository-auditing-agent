@@ -42,6 +42,8 @@ dependency_management
   '*' with no lockfile or constraints file). Version ranges in a published library are fine.
 - DEP-003 Inconsistent specifications: the same package with conflicting versions across manifests,
   imported third-party packages not declared, CI installing from a different file than the project.
+  Test/docs/dev-only tools listed in a requirements file but absent from a package's runtime
+  dependencies (install_requires/[project].dependencies) are NOT inconsistent.
 - DEP-004 Missing required lockfile: package.json without package-lock/yarn.lock/pnpm-lock (especially
   when CI runs `npm ci`), Pipfile without Pipfile.lock, Poetry/uv project without its lock for an app.
 code_quality

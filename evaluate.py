@@ -1,6 +1,7 @@
 """Run real-LLM audits on disposable known-defect repositories and measure results."""
 
 import argparse
+import json
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -48,6 +49,9 @@ def main(argv=None):
         result = {'model': llm.model, 'run_at': datetime.now(timezone.utc).isoformat(),
                   'method': 'Rule/path matching on local synthetic fixtures; human review of unmatched findings required.',
                   'cases': {}}
+        if args.case != 'all' and args.output.exists():
+            # Running one case updates its entry and keeps earlier cases' results.
+            result['cases'] = json.loads(args.output.read_text(encoding='utf-8')).get('cases', {})
         for name in EXPECTED if args.case == 'all' else [args.case]:
             with tempfile.TemporaryDirectory(prefix='audit-eval-') as temp:
                 root = build_case(Path(temp) / name, name)

@@ -27,6 +27,24 @@ On Windows, activate with `.venv\Scripts\activate` and copy the example with `co
 Edit `.env` in the project directory. It is ignored by Git. Environment variables already set in
 your shell take precedence over this file. Keep API keys out of reports, commits, and screenshots.
 
+The default `.env.example` uses **OpenRouter free models**. Create a key at
+[openrouter.ai/keys](https://openrouter.ai/keys) and set it as `LLM_API_KEY`:
+
+```dotenv
+LLM_API_KEY=your-OpenRouter-key
+LLM_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+LLM_FALLBACK_MODELS=google/gemma-4-31b-it:free,nvidia/nemotron-3-super-120b-a12b:free
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_TEMPERATURE=
+LLM_REASONING_EFFORT=
+LLM_TIMEOUT=90
+```
+
+`LLM_FALLBACK_MODELS` is OpenRouter-specific: if the primary model is rate-limited or unavailable,
+OpenRouter routes the request to the next model in the list. Free models (ids ending in `:free`)
+cost nothing but have per-minute and daily request limits; one audit uses roughly 15-40 requests.
+Any OpenRouter model that supports tool calling works.
+
 For **Gemini**, create a key in [Google AI Studio](https://aistudio.google.com/apikey):
 
 ```dotenv
@@ -126,7 +144,9 @@ python agent.py --repo https://github.com/kennethreitz/samplemod --output sample
 
 The accompanying trace identifies the model, inspected commit, completion status, tool calls,
 redacted arguments, and result previews. The sample must come from this real command, rather than
-from a scripted test model or manually entered findings.
+from a scripted test model or manually entered findings. The committed `sample_report.json` was
+produced this way with `nvidia/nemotron-3-ultra-550b-a55b:free` through OpenRouter (20 LLM turns,
+6 findings).
 
 ## Architecture
 
@@ -228,6 +248,15 @@ only once; extra or duplicate findings count as false positives. The results inc
 recall, missed defects and unmatched findings, which should be reviewed for alternate valid rule
 assignments. Undefined precision/recall denominators are reported as `null`.
 
-Use `--case obvious`, `--case subtle`, or `--case healthy` for an individual case. Reports/traces go
+Measured with `nvidia/nemotron-3-ultra-550b-a55b:free` (OpenRouter, 2026-10-25):
+
+| Case | True positives | False positives | Missed | Precision | Recall |
+|---|---|---|---|---|---|
+| healthy | 0 | 0 | 0 | n/a | n/a |
+| obvious | 7 | 0 | 0 | 1.00 | 1.00 |
+| subtle | pending | | | | |
+
+Use `--case obvious`, `--case subtle`, or `--case healthy` for an individual case; a single-case
+run updates that case's entry in the existing results file. Reports/traces go
 to `evaluation_runs/`, which is ignored by Git. For a public-repository check, use the normal CLI and
 compare its report against the inspected revision recorded in its trace.

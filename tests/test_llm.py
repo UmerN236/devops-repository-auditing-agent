@@ -16,7 +16,7 @@ except ImportError:  # OpenAI SDK 1.x/2.x
 def api(monkeypatch):
     """Exercise the real SDK's wire format without network requests or credentials."""
     for name in ['LLM_API_KEY', 'OPENAI_API_KEY', 'LLM_MODEL', 'LLM_BASE_URL', 'LLM_TEMPERATURE',
-                 'LLM_REASONING_EFFORT', 'LLM_TIMEOUT']:
+                 'LLM_REASONING_EFFORT', 'LLM_TIMEOUT', 'LLM_FALLBACK_MODELS']:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv('LLM_API_KEY', 'offline-test-placeholder')
     requests = []
@@ -46,6 +46,15 @@ def test_tool_calls_and_reasoning_settings(api, monkeypatch):
     assert reply['tool_calls'][0]['function']['name'] == 'list_files'
 
 
+def test_openrouter_fallback_models(api, monkeypatch):
+    requests, _ = api
+    monkeypatch.setenv('LLM_MODEL', 'vendor/primary:free')
+    monkeypatch.setenv('LLM_FALLBACK_MODELS', 'vendor/second:free, vendor/third:free')
+    LLM().chat([{'role': 'user', 'content': 'Audit'}], [])
+    assert requests[0]['models'] == ['vendor/primary:free', 'vendor/second:free', 'vendor/third:free']
+    assert 'models' not in json.dumps(requests[0]['messages'])
+
+
 @pytest.mark.parametrize('name,value', [('LLM_TIMEOUT', 'nope'), ('LLM_TIMEOUT', '-1'),
                                      ('LLM_TEMPERATURE', 'nan'), ('LLM_REASONING_EFFORT', 'unlimited')])
 def test_bad_config_is_a_useful_error(api, monkeypatch, name, value):
@@ -59,6 +68,16 @@ def test_rejects_truncated_reply(api):
     response['choices'][0]['finish_reason'] = 'length'
     with pytest.raises(LLMError, match='truncated'):
         LLM().chat([{'role': 'user', 'content': 'Audit'}], [])
+
+
+def test_retries_empty_choices_then_reports_provider_error(api, monkeypatch):
+    requests, response = api
+    monkeypatch.setattr('llm.time.sleep', lambda s: None)
+    response['choices'] = []
+    response['error'] = {'message': 'upstream rate limited', 'code': 429}
+    with pytest.raises(LLMError, match='upstream rate limited'):
+        LLM().chat([{'role': 'user', 'content': 'Audit'}], [])
+    assert len(requests) == 3
 
 
 def test_provider_tool_metadata_survives_followup(api):
