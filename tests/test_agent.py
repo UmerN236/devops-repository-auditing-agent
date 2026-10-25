@@ -5,6 +5,7 @@ from conftest import FAKE_KEY, FakeLLM, call
 
 import agent
 from core import Auditor
+from llm import LLMError
 from tools import RepoTools
 
 SECRET = dict(rule_id="SEC-001", category="security", severity="critical", file="app/config.py", line=2,
@@ -130,7 +131,8 @@ def test_cli_end_to_end(cli, monkeypatch, tmp_path):
     report = json.loads(out.read_text())
     assert report["repository"] == "https://github.com/x/y"
     assert report["violations"][0]["rule_id"] == "SEC-001"
-    assert json.loads(out.with_suffix(".trace.json").read_text())["steps"]
+    trace = json.loads(out.with_suffix(".trace.json").read_text())
+    assert trace["steps"] and trace['models_used'] == ['fake-model']
 
 
 def test_cli_rejects_invalid_url(cli, tmp_path, capsys):
@@ -178,6 +180,25 @@ def test_cli_creates_trace_parent(cli, monkeypatch, tmp_path):
     assert agent.main(['--repo', 'https://github.com/x/y', '--output', str(out), '--trace', str(trace)]) == 0
     assert json.loads(out.read_text())['violations'] == []
     assert json.loads(trace.read_text())['completed'] is True
+
+
+def test_cli_provider_failure_keeps_an_incomplete_trace(cli, monkeypatch, tmp_path, capsys):
+    client = FakeLLM([[call('list_files')]])
+    original_chat = client.chat
+
+    def fail_after_first_turn(messages, schemas):
+        if client.requests:
+            raise LLMError('provider daily quota exhausted')
+        return original_chat(messages, schemas)
+
+    monkeypatch.setattr(client, 'chat', fail_after_first_turn)
+    monkeypatch.setattr(agent, 'LLM', lambda: client)
+    out = tmp_path / 'report.json'
+    assert agent.main(['--repo', 'https://github.com/x/y', '--output', str(out)]) == 1
+    assert not out.exists()
+    trace = json.loads(out.with_suffix('.trace.json').read_text())
+    assert trace['completed'] is False and len(trace['steps']) == 1
+    assert 'quota exhausted' in capsys.readouterr().err
 
 
 def test_failed_atomic_write_preserves_previous_output(tmp_path, monkeypatch):

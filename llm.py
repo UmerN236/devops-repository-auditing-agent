@@ -4,6 +4,7 @@ import math
 import os
 import time
 import uuid
+from urllib.parse import urlsplit
 
 from report import register_secret
 
@@ -21,6 +22,8 @@ class LLM:
             raise LLMError("No API key configured. Set LLM_API_KEY (see .env.example).")
         register_secret(api_key)
         self.model = model or os.getenv("LLM_MODEL") or "gpt-5.4-mini"
+        self.last_model = self.model
+        endpoint = base_url or os.getenv('LLM_BASE_URL') or None
         temperature = os.getenv("LLM_TEMPERATURE", "").strip()
         try:
             timeout = float(timeout if timeout is not None else os.getenv('LLM_TIMEOUT', '90'))
@@ -37,12 +40,12 @@ class LLM:
                 raise LLMError('Invalid LLM_REASONING_EFFORT; see .env.example.')
             self.extra['reasoning_effort'] = effort
         fallbacks = [m.strip() for m in os.getenv('LLM_FALLBACK_MODELS', '').split(',') if m.strip()]
-        if fallbacks:
+        if fallbacks and endpoint and urlsplit(str(endpoint)).hostname == 'openrouter.ai':
             # OpenRouter routes to the next model when one is rate-limited or unavailable.
             self.extra['extra_body'] = {'models': [self.model, *fallbacks]}
         self.client = OpenAI(
             api_key=api_key,
-            base_url=base_url or os.getenv("LLM_BASE_URL") or None,
+            base_url=endpoint,
             timeout=timeout,
             max_retries=2,  # SDK retries rate limits, timeouts and 5xx with backoff
         )
@@ -61,12 +64,14 @@ class LLM:
             if resp.choices:
                 break
             # Some gateways (e.g. OpenRouter) report upstream failures as a 200 with an error body.
-            time.sleep(2 * (attempt + 1))
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
         else:
             detail = (resp.model_extra or {}).get('error') or 'no details'
             raise LLMError(f"LLM returned no choices after 3 attempts: {detail}")
         if resp.choices[0].finish_reason == 'length':
             raise LLMError('LLM response was truncated; use a model with a larger output limit.')
+        self.last_model = resp.model or self.model
 
         msg = resp.choices[0].message
         if msg.refusal:

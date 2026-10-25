@@ -158,7 +158,8 @@ class Auditor:
             messages.append(reply)
             if reply.get("content"):
                 self.log(f"[step {step}] thought: {redact(reply['content'].strip())[:300]}")
-            entry = {"step": step, "thought": redact(reply.get("content") or ""), "tool_calls": []}
+            entry = {"step": step, "model": getattr(self.llm, 'last_model', None) or self.llm.model,
+                     "thought": redact(reply.get("content") or ""), "tool_calls": []}
             self.trace.append(entry)
 
             calls = reply.get("tool_calls") or []

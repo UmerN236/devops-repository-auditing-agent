@@ -97,11 +97,13 @@ def main(argv=None):
             log(f"Auditing with model {llm.model} ...")
             auditor = Auditor(llm, RepoTools(repo_dir), url, max_steps=args.max_steps,
                               log=(lambda m: None) if args.quiet else log)
-            report = auditor.run()
             revision = auditor.tools._git('rev-parse', 'HEAD').strip()
-
-        write_json(trace_path, {"repository": url, "revision": revision, "model": llm.model,
-                               "completed": auditor.done, "steps": auditor.trace})
+            try:
+                report = auditor.run()
+            finally:
+                write_json(trace_path, {"repository": url, "revision": revision, "model": llm.model,
+                                       "models_used": list(dict.fromkeys(s['model'] for s in auditor.trace)),
+                                       "completed": auditor.done, "steps": auditor.trace})
         if not auditor.done:
             raise FatalError(f'Audit incomplete: step budget exhausted. Increase --max-steps; trace: {trace_path}')
         write_json(output, report)

@@ -49,10 +49,31 @@ def test_tool_calls_and_reasoning_settings(api, monkeypatch):
 def test_openrouter_fallback_models(api, monkeypatch):
     requests, _ = api
     monkeypatch.setenv('LLM_MODEL', 'vendor/primary:free')
+    monkeypatch.setenv('LLM_BASE_URL', 'https://openrouter.ai/api/v1')
     monkeypatch.setenv('LLM_FALLBACK_MODELS', 'vendor/second:free, vendor/third:free')
     LLM().chat([{'role': 'user', 'content': 'Audit'}], [])
     assert requests[0]['models'] == ['vendor/primary:free', 'vendor/second:free', 'vendor/third:free']
     assert 'models' not in json.dumps(requests[0]['messages'])
+
+
+@pytest.mark.parametrize('endpoint', ['', 'https://generativelanguage.googleapis.com/v1beta/openai/',
+                                    'https://openrouter.ai.example.invalid/v1'])
+def test_openrouter_fallbacks_are_not_sent_to_other_providers(api, monkeypatch, endpoint):
+    requests, _ = api
+    monkeypatch.setenv('LLM_BASE_URL', endpoint)
+    monkeypatch.setenv('LLM_FALLBACK_MODELS', 'vendor/fallback:free')
+    LLM().chat([{'role': 'user', 'content': 'Audit'}], [])
+    assert 'models' not in requests[0]
+
+
+def test_tracks_actual_model_returned_by_gateway(api, monkeypatch):
+    _, response = api
+    response['model'] = 'vendor/actual-fallback'
+    monkeypatch.setenv('LLM_MODEL', 'vendor/requested')
+    client = LLM()
+    client.chat([{'role': 'user', 'content': 'Audit'}], [])
+    assert client.model == 'vendor/requested'
+    assert client.last_model == 'vendor/actual-fallback'
 
 
 @pytest.mark.parametrize('name,value', [('LLM_TIMEOUT', 'nope'), ('LLM_TIMEOUT', '-1'),
